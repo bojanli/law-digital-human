@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal
+from app.schemas.common import Citation
 
 
 class ChatRequest(BaseModel):
@@ -9,20 +10,13 @@ class ChatRequest(BaseModel):
     case_state: dict | None = Field(default=None, description="案件状态（可选）")
 
 
-class Citation(BaseModel):
-    chunk_id: str
-    law_name: str | None = None
-    article_no: str | None = None
-    source: str | None = None
-
-
 class AnswerJson(BaseModel):
     conclusion: str
     analysis: list[str]
     actions: list[str]
     citations: list[Citation]
-    assumptions: list[str] = []
-    follow_up_questions: list[str] = []
+    assumptions: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
     emotion: str = "calm"
 
 

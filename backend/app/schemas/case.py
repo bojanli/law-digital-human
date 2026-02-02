@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from app.schemas.common import Citation
 
 
 class CaseStartRequest(BaseModel):
@@ -15,6 +16,6 @@ class CaseResponse(BaseModel):
     text: str
     next_question: str | None = None
     state: str | None = None
-    citations: list[dict] = []
+    citations: list[Citation] = Field(default_factory=list)
     emotion: str = "calm"
     audio_url: str | None = None
