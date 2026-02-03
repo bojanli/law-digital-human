@@ -110,6 +110,47 @@ class CaseFlowTests(unittest.TestCase):
         finally:
             knowledge_service.search = original_search
 
+    def test_labor_template_flow(self) -> None:
+        original_search = knowledge_service.search
+        knowledge_service.search = lambda query, top_k=5: [
+            {
+                "chunk_id": "chunk_labor",
+                "law_name": "劳动合同法",
+                "article_no": "第三十条",
+                "section": "工资支付",
+                "source": "docs/labor.md",
+            }
+        ]
+        try:
+            sid = "case_ut_labor_001"
+            start = case_service.start_case(CaseStartRequest(case_id="labor_wage_arrears", session_id=sid))
+            self.assertEqual(start.state, "fact_confirm")
+            self.assertIn("employment_exists", start.missing_slots)
+
+            fact = case_service.step_case(
+                CaseStepRequest(
+                    session_id=sid,
+                    user_input="有劳动合同，存在加班费争议，工资已逾期未发，有考勤和工资流水，欠薪8000元",
+                )
+            )
+            self.assertEqual(fact.state, "dispute_identify")
+            self.assertIn("arrears_wage", fact.next_actions)
+
+            dispute = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arrears_wage"))
+            self.assertEqual(dispute.state, "option_select")
+            self.assertIn("arbitration", dispute.next_actions)
+
+            action = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arbitration"))
+            self.assertEqual(action.state, "consequence_feedback")
+            self.assertIn("action:arbitration", action.path)
+            self.assertGreaterEqual(len(action.citations), 1)
+        finally:
+            knowledge_service.search = original_search
+
+    def test_unknown_case_template(self) -> None:
+        with self.assertRaises(case_service.CaseNotFoundError):
+            case_service.start_case(CaseStartRequest(case_id="unknown_case_template", session_id="sid_x"))
+
 
 if __name__ == "__main__":
     unittest.main()
