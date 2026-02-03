@@ -180,12 +180,24 @@ def ensure_collection(client: QdrantClient, collection: str, dim: int, recreate:
         )
 
 
+def _new_qdrant_client() -> QdrantClient:
+    try:
+        return QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+    except TypeError:
+        return QdrantClient(url=settings.qdrant_url)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, help="just-laws docs path")
     parser.add_argument("--db", default=settings.knowledge_db_path)
     parser.add_argument("--collection", default=settings.qdrant_collection)
     parser.add_argument("--recreate", action="store_true")
+    parser.add_argument(
+        "--embedding",
+        default=None,
+        help="Override embedding provider for this run (e.g. mock). Use mock when Ark/SSL fails.",
+    )
     args = parser.parse_args()
 
     source_root = Path(args.source)
@@ -197,7 +209,7 @@ def main() -> None:
         db_path = ROOT / db_path
     init_db(db_path)
 
-    client = QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+    client = _new_qdrant_client()
     ensure_collection(client, args.collection, settings.embedding_dim, args.recreate)
 
     md_files = list(source_root.rglob("*.md"))
@@ -228,7 +240,7 @@ def main() -> None:
                     raw_id = f"{law_name}|{article['article_no']}|{idx}|{chunk_text_part}"
                     # Use UUID for Qdrant point ID; keep deterministic across runs.
                     chunk_id = str(uuid.uuid5(uuid.NAMESPACE_URL, raw_id))
-                    vector = embed_text(chunk_text_part)
+                    vector = embed_text(chunk_text_part, provider_override=args.embedding)
                     payload = {
                         "chunk_id": chunk_id,
                         "law_name": law_name,

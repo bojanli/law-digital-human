@@ -12,6 +12,20 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app.core.config import settings  # noqa: E402
 
 
+def _new_client(*, url: str | None = None, host: str | None = None, port: int | None = None) -> QdrantClient:
+    kwargs = {}
+    if url is not None:
+        kwargs["url"] = url
+    if host is not None:
+        kwargs["host"] = host
+    if port is not None:
+        kwargs["port"] = port
+    try:
+        return QdrantClient(check_compatibility=False, **kwargs)
+    except TypeError:
+        return QdrantClient(**kwargs)
+
+
 def _print_proxy_env() -> None:
     keys = [
         "HTTP_PROXY",
@@ -49,19 +63,19 @@ def main() -> None:
 
     _try_get_collections(
         "url",
-        QdrantClient(url=settings.qdrant_url, check_compatibility=False),
+        _new_client(url=settings.qdrant_url),
     )
 
     _try_get_collections(
         "host/port",
-        QdrantClient(host="127.0.0.1", port=6333, check_compatibility=False),
+        _new_client(host="127.0.0.1", port=6333),
     )
 
     os.environ["NO_PROXY"] = "127.0.0.1,localhost"
     os.environ["no_proxy"] = "127.0.0.1,localhost"
     _try_get_collections(
         "host/port + NO_PROXY",
-        QdrantClient(host="127.0.0.1", port=6333, check_compatibility=False),
+        _new_client(host="127.0.0.1", port=6333),
     )
 
 
