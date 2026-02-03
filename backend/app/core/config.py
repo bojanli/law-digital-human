@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(default="http://127.0.0.1:6333", alias="QDRANT_URL")
     qdrant_collection: str = Field(default="laws", alias="QDRANT_COLLECTION")
     knowledge_db_path: str = Field(default="data/knowledge.db", alias="KNOWLEDGE_DB_PATH")
+    case_db_path: str = Field(default="data/case.db", alias="CASE_DB_PATH")
     embedding_provider: str = Field(default="mock", alias="EMBEDDING_PROVIDER")
     embedding_dim: int = Field(default=384, alias="EMBEDDING_DIM")
     chat_top_k: int = Field(default=5, alias="CHAT_TOP_K")
