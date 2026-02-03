@@ -175,3 +175,73 @@ def _build_filter(endpoint: str | None = None, days: int | None = None) -> tuple
     if not clauses:
         return "", tuple()
     return f"WHERE {' AND '.join(clauses)}", tuple(params)
+
+
+def get_paper_kpis(days: int | None = None) -> dict[str, Any]:
+    rows = fetch_metrics_rows(days=days)
+    chat_rows = [row for row in rows if row["endpoint"] == "chat" and int(row["ok"]) == 1]
+    case_step_rows = [row for row in rows if row["endpoint"] == "case_step" and int(row["ok"]) == 1]
+
+    with_evidence = [r for r in chat_rows if _meta_int(r, "evidence") > 0]
+    citation_hits = [r for r in with_evidence if _meta_int(r, "citations") > 0]
+    no_evidence_rows = [r for r in chat_rows if _meta_int(r, "evidence") == 0]
+    no_evidence_rejects = [r for r in no_evidence_rows if _is_no_evidence_reject(r)]
+
+    return {
+        "days": int(days) if days else None,
+        "chat_total": len(chat_rows),
+        "chat_with_evidence": len(with_evidence),
+        "citation_hit_rate": _ratio(len(citation_hits), len(with_evidence)),
+        "chat_no_evidence": len(no_evidence_rows),
+        "no_evidence_reject_rate": _ratio(len(no_evidence_rejects), len(no_evidence_rows)),
+        "chat_latency": _latency_stats(chat_rows),
+        "case_step_latency": _latency_stats(case_step_rows),
+    }
+
+
+def _latency_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    values = [float(r["latency_ms"]) for r in rows]
+    if not values:
+        return {"sample_size": 0, "p50_ms": 0.0, "p90_ms": 0.0, "avg_ms": 0.0}
+    return {
+        "sample_size": len(values),
+        "p50_ms": _percentile(values, 50),
+        "p90_ms": _percentile(values, 90),
+        "avg_ms": sum(values) / len(values),
+    }
+
+
+def _percentile(values: list[float], p: float) -> float:
+    if not values:
+        return 0.0
+    sorted_vals = sorted(values)
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+    rank = (len(sorted_vals) - 1) * (p / 100.0)
+    low = int(rank)
+    high = min(low + 1, len(sorted_vals) - 1)
+    weight = rank - low
+    return sorted_vals[low] * (1 - weight) + sorted_vals[high] * weight
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    return (numerator / denominator) if denominator else 0.0
+
+
+def _meta_int(row: dict[str, Any], key: str) -> int:
+    meta = row.get("meta") or {}
+    value = meta.get(key) if isinstance(meta, dict) else None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_no_evidence_reject(row: dict[str, Any]) -> bool:
+    meta = row.get("meta") or {}
+    if not isinstance(meta, dict):
+        return False
+    explicit = meta.get("no_evidence_reject")
+    if isinstance(explicit, bool):
+        return explicit
+    return _meta_int(row, "citations") == 0 and str(meta.get("answer_emotion") or "").strip().lower() == "serious"

@@ -9,6 +9,7 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.services import chat as chat_service
 from app.services import knowledge as knowledge_service
 from app.services import metrics as metrics_service
+from app.services import tts as tts_service
 
 router = APIRouter(prefix="/api", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -18,9 +19,20 @@ logger = logging.getLogger(__name__)
 def chat(req: ChatRequest, request: Request) -> ChatResponse:
     started = time.perf_counter()
     request_id = getattr(request.state, "request_id", "")
+    audio_url: str | None = None
     try:
         evidence = knowledge_service.search(req.text, settings.chat_top_k)
         answer = chat_service.build_answer(req, evidence)
+        try:
+            audio_url = tts_service.synthesize(answer.conclusion, emotion=answer.emotion)
+        except Exception:
+            log_event(
+                logger,
+                "warning",
+                "chat_tts_failed",
+                rid=request_id,
+                session_id=req.session_id,
+            )
         elapsed_ms = (time.perf_counter() - started) * 1000
         log_event(
             logger,
@@ -31,6 +43,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             mode=req.mode,
             evidence=len(evidence),
             citations=len(answer.citations),
+            audio_ready=bool(audio_url),
             cost_ms=f"{elapsed_ms:.2f}",
         )
         metrics_service.record_api_call(
@@ -39,7 +52,14 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             status_code=200,
             latency_ms=elapsed_ms,
             request_id=request_id,
-            meta={"mode": req.mode, "evidence": len(evidence), "citations": len(answer.citations)},
+            meta={
+                "mode": req.mode,
+                "evidence": len(evidence),
+                "citations": len(answer.citations),
+                "answer_emotion": answer.emotion,
+                "no_evidence_reject": bool(len(evidence) == 0 and len(answer.citations) == 0 and answer.emotion == "serious"),
+                "audio_ready": bool(audio_url),
+            },
         )
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000
@@ -61,4 +81,4 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             meta={"mode": req.mode},
         )
         raise HTTPException(status_code=500, detail="聊天服务暂时不可用，请稍后重试") from exc
-    return ChatResponse(answer_json=answer, audio_url=None)
+    return ChatResponse(answer_json=answer, audio_url=audio_url)

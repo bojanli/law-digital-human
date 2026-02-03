@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     ark_api_key: str = Field(default="", alias="ARK_API_KEY")
     ark_model: str = Field(default="", alias="ARK_MODEL")
     ark_embedding_model: str = Field(default="", alias="ARK_EMBEDDING_MODEL")
+    tts_enabled: bool = Field(default=False, alias="TTS_ENABLED")
+    tts_provider: str = Field(default="mock", alias="TTS_PROVIDER")
+    tts_base_url: str = Field(default="https://ark.cn-beijing.volces.com/api/v3", alias="TTS_BASE_URL")
+    tts_api_key: str = Field(default="", alias="TTS_API_KEY")
+    tts_model: str = Field(default="", alias="TTS_MODEL")
+    tts_voice: str = Field(default="female-tianmei", alias="TTS_VOICE")
 
     def cors_origin_list(self) -> list[str]:
         # 支持用逗号分隔多个 origin

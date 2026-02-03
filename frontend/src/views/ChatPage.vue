@@ -87,6 +87,7 @@
       展开思维签名
     </button>
 
+    <AvatarContainer class="avatar-dock" />
   </div>
 </template>
 
@@ -94,6 +95,8 @@
 import { computed, ref } from "vue";
 import axios from "axios";
 import EvidenceCard from "../components/EvidenceCard.vue";
+import AvatarContainer from "../components/AvatarContainer.vue";
+import { normalizeAvatarEmotion, playAvatar, setAvatarEmotion } from "../services/avatarBridge";
 
 type Citation = {
   chunk_id: string;
@@ -115,6 +118,11 @@ type ChatMessage = {
   text: string;
   citations: Citation[];
   reasoning?: ReasoningSignature;
+};
+
+type ChatApiResponse = {
+  answer_json?: Record<string, unknown>;
+  audio_url?: string | null;
 };
 
 const quickPrompts = [
@@ -260,7 +268,7 @@ async function sendMessage(): Promise<void> {
   loading.value = true;
 
   try {
-    const res = await axios.post("/api/chat", {
+    const res = await axios.post<ChatApiResponse>("/api/chat", {
       session_id: sessionId.value,
       text: input,
       mode: "chat",
@@ -270,17 +278,26 @@ async function sendMessage(): Promise<void> {
     const answerJson = (res.data?.answer_json || {}) as Record<string, unknown>;
     const citations = toCitationList(answerJson.citations);
     const reasoning = buildReasoning(answerJson, citations);
+    const assistantText = composeAssistantText(answerJson, citations);
+    const emotion = normalizeAvatarEmotion(answerJson.emotion);
 
     messages.value.push({
       id: nextId(),
       role: "assistant",
-      text: composeAssistantText(answerJson, citations),
+      text: assistantText,
       citations,
       reasoning,
     });
+
+    setAvatarEmotion(emotion);
+    if (typeof res.data?.audio_url === "string" && res.data.audio_url.trim()) {
+      playAvatar(res.data.audio_url, assistantText, emotion);
+    }
+
     backendOk.value = true;
   } catch {
     backendOk.value = false;
+    setAvatarEmotion("serious");
     messages.value.push({
       id: nextId(),
       role: "assistant",
@@ -526,6 +543,14 @@ async function sendMessage(): Promise<void> {
   cursor: pointer;
 }
 
+.avatar-dock {
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.2rem;
+  width: 17rem;
+  z-index: 30;
+}
+
 .float-panel-enter-active,
 .float-panel-leave-active,
 .message-slide-enter-active,
@@ -551,7 +576,8 @@ async function sendMessage(): Promise<void> {
   }
 
   .reasoning-panel,
-  .reasoning-fab {
+  .reasoning-fab,
+  .avatar-dock {
     right: 0.8rem;
   }
 }
@@ -585,6 +611,15 @@ async function sendMessage(): Promise<void> {
     right: 1rem;
     bottom: 8.4rem;
     z-index: 50;
+  }
+
+  .avatar-dock {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    bottom: 1rem;
+    z-index: 45;
   }
 }
 </style>

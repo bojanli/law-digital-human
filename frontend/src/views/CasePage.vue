@@ -52,6 +52,8 @@
         </article>
       </Transition>
 
+      <AvatarContainer class="avatar-inline" />
+
       <div v-if="sessionId" class="case-main">
         <article class="glass-panel depth-soft card">
           <p class="card-title">流程推进</p>
@@ -111,6 +113,14 @@ import { ref } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
 import EvidenceCard from "../components/EvidenceCard.vue";
+import AvatarContainer from "../components/AvatarContainer.vue";
+import {
+  normalizeAvatarEmotion,
+  playAvatar,
+  setAvatarEmotion,
+  setAvatarSubtitle,
+  stopAvatar,
+} from "../services/avatarBridge";
 
 type Citation = {
   chunk_id: string;
@@ -145,11 +155,21 @@ const messages = ref<CaseResponse[]>([]);
 function pushMessage(resp: CaseResponse): void {
   current.value = resp;
   messages.value.push(resp);
+
+  const emotion = normalizeAvatarEmotion(resp.emotion);
+  setAvatarEmotion(emotion);
+
+  if (typeof resp.audio_url === "string" && resp.audio_url.trim()) {
+    playAvatar(resp.audio_url, resp.text, emotion);
+  } else {
+    setAvatarSubtitle(resp.text);
+  }
 }
 
 async function startCase(): Promise<void> {
   starting.value = true;
   try {
+    stopAvatar();
     const res = await axios.post<CaseResponse>("/api/case/start", { case_id: caseId.value });
     sessionId.value = res.data.session_id;
     messages.value = [];
@@ -344,6 +364,10 @@ async function stepByInput(): Promise<void> {
   border-radius: 14px;
   padding: 0.68rem 0.76rem;
   color: var(--text-muted);
+}
+
+.avatar-inline {
+  margin-top: 0.8rem;
 }
 
 .case-main {

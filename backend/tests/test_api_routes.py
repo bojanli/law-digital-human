@@ -37,6 +37,29 @@ class ApiRoutesTests(unittest.TestCase):
         self.assertEqual(payload["answer_json"]["conclusion"], "测试结论")
         self.assertEqual(payload["answer_json"]["citations"][0]["chunk_id"], "c1")
 
+    @patch("app.api.v1.chat.tts_service.synthesize")
+    @patch("app.api.v1.chat.chat_service.build_answer")
+    @patch("app.api.v1.chat.knowledge_service.search")
+    def test_chat_tts_failure_does_not_break_response(self, mock_search, mock_build_answer, mock_tts) -> None:
+        mock_search.return_value = [{"chunk_id": "c1", "law_name": "民法典", "article_no": "第一条"}]
+        mock_build_answer.return_value = AnswerJson(
+            conclusion="测试结论",
+            analysis=["分析1"],
+            actions=["建议1"],
+            citations=[Citation(chunk_id="c1", law_name="民法典", article_no="第一条")],
+            assumptions=[],
+            follow_up_questions=[],
+            emotion="calm",
+        )
+        mock_tts.side_effect = RuntimeError("tts boom")
+
+        resp = self.client.post(
+            "/api/chat",
+            json={"session_id": "s1", "text": "房东不退押金", "mode": "chat", "case_state": None},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["audio_url"])
+
     @patch("app.api.v1.chat.chat_service.build_answer")
     @patch("app.api.v1.chat.knowledge_service.search")
     def test_chat_failure(self, mock_search, mock_build_answer) -> None:
@@ -104,6 +127,28 @@ class ApiRoutesTests(unittest.TestCase):
         resp = self.client.post("/api/case/start", json={"case_id": "rent_deposit_dispute"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["state"], "fact_confirm")
+
+    @patch("app.api.v1.case.tts_service.synthesize")
+    @patch("app.api.v1.case.case_service.start_case")
+    def test_case_start_tts_failure_does_not_break_response(self, mock_start, mock_tts) -> None:
+        mock_start.return_value = CaseResponse(
+            session_id="case_1",
+            case_id="rent_deposit_dispute",
+            text="已进入案件模拟",
+            next_question="请补充事实",
+            state="fact_confirm",
+            slots={"lease_exists": None},
+            path=[],
+            missing_slots=["lease_exists"],
+            next_actions=[],
+            citations=[],
+            emotion="serious",
+            audio_url=None,
+        )
+        mock_tts.side_effect = RuntimeError("tts boom")
+        resp = self.client.post("/api/case/start", json={"case_id": "rent_deposit_dispute"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["audio_url"])
 
 
 if __name__ == "__main__":
