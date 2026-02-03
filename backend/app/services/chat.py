@@ -12,8 +12,8 @@ def build_answer(req: ChatRequest, evidence: list[dict[str, Any]]) -> AnswerJson
     if provider in {"doubao", "ark"} and settings.ark_api_key and settings.ark_model:
         answer = _ask_ark(req, evidence)
         if answer is not None:
-            return answer
-    return _fallback_answer(req, evidence)
+            return _enforce_citation_policy(req, evidence, answer)
+    return _enforce_citation_policy(req, evidence, _fallback_answer(req, evidence))
 
 
 def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]]) -> AnswerJson | None:
@@ -175,4 +175,35 @@ def _fallback_answer(req: ChatRequest, evidence: list[dict[str, Any]]) -> Answer
         follow_up_questions=["请问事件发生在什么地区？是否有合同或聊天记录？"],
         citations=citations,
         emotion="calm",
+    )
+
+
+def _enforce_citation_policy(req: ChatRequest, evidence: list[dict[str, Any]], answer: AnswerJson) -> AnswerJson:
+    valid_chunk_ids = {str(item.get("chunk_id")) for item in evidence if item.get("chunk_id")}
+    if not valid_chunk_ids:
+        return _reject_answer(req, reason="当前未检索到可核验法条依据，暂不输出确定结论。")
+
+    if not answer.citations:
+        return _reject_answer(req, reason="回答未包含可核验引用依据，请补充事实后重试。")
+
+    filtered = [c for c in answer.citations if str(c.chunk_id) in valid_chunk_ids]
+    if not filtered:
+        return _reject_answer(req, reason="引用依据与检索结果不一致，已拒绝本次结论输出。")
+    if len(filtered) != len(answer.citations):
+        answer = answer.model_copy(update={"citations": filtered})
+    return answer
+
+
+def _reject_answer(req: ChatRequest, reason: str) -> AnswerJson:
+    return AnswerJson(
+        conclusion="当前无法给出确定结论。",
+        analysis=[reason, f"session_id={req.session_id}", f"mode={req.mode}"],
+        actions=[
+            "请补充关键信息（时间、地点、合同/聊天/转账证据）。",
+            "补充后可再次提问，我会基于可核验依据输出结论。",
+        ],
+        assumptions=["系统启用“无可核验引用则拒答”约束策略。"],
+        follow_up_questions=["请问你目前掌握了哪些证据材料？"],
+        citations=[],
+        emotion="serious",
     )

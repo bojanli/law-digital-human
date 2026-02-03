@@ -1,6 +1,7 @@
 import logging
 import re
 import sqlite3
+from contextlib import closing
 from typing import Any
 from pathlib import Path
 
@@ -70,7 +71,7 @@ def search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     if not ids:
         return []
 
-    with _get_db() as conn:
+    with closing(_get_db()) as conn:
         _ensure_chunks_table(conn)
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
@@ -178,7 +179,7 @@ def _rerank_by_keyword(query: str, items: list[dict[str, Any]]) -> list[dict[str
 
 
 def get_chunk(chunk_id: str) -> dict[str, Any] | None:
-    with _get_db() as conn:
+    with closing(_get_db()) as conn:
         _ensure_chunks_table(conn)
         conn.row_factory = sqlite3.Row
         cursor = conn.execute("SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,))

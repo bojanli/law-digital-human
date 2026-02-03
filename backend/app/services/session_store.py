@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def ensure_case_sessions_table() -> None:
-    with _get_conn() as conn:
+    with closing(_get_conn()) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS case_sessions (
@@ -31,11 +32,12 @@ def ensure_case_sessions_table() -> None:
             )
             """
         )
+        conn.commit()
 
 
 def get_session(session_id: str) -> dict[str, Any] | None:
     ensure_case_sessions_table()
-    with _get_conn() as conn:
+    with closing(_get_conn()) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT state_json FROM case_sessions WHERE session_id = ?",
@@ -53,7 +55,7 @@ def get_session(session_id: str) -> dict[str, Any] | None:
 def save_session(session_id: str, case_id: str, state: dict[str, Any]) -> None:
     ensure_case_sessions_table()
     payload = json.dumps(state, ensure_ascii=False)
-    with _get_conn() as conn:
+    with closing(_get_conn()) as conn:
         conn.execute(
             """
             INSERT INTO case_sessions (session_id, case_id, state_json, updated_at)
@@ -66,9 +68,11 @@ def save_session(session_id: str, case_id: str, state: dict[str, Any]) -> None:
             """,
             (session_id, case_id, payload),
         )
+        conn.commit()
 
 
 def delete_session(session_id: str) -> None:
     ensure_case_sessions_table()
-    with _get_conn() as conn:
+    with closing(_get_conn()) as conn:
         conn.execute("DELETE FROM case_sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
