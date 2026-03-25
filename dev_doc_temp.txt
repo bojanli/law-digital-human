@@ -1,0 +1,200 @@
+开发文档 v1.0（作为后续实施依据）
+0. 文档信息
+项目类型：应用开发类毕业设计（LLM API + RAG + Unity WebGL 数字人）
+目标交付：可运行原型 + 测试与结果分析 + 论文与附录代码
+约束条件：使用市面成品 LLM/Embedding/TTS/ASR API；不训练模型；重点做系统集成与工程实现
+
+1. 系统目标与范围
+1.1 总目标
+构建一个Web 端数字人普法教育系统，支持：
+法律问答（RAG）：包含**逻辑推导过程（思维签名）**及对应的法条/案例依据，确保普法过程的可解释性。
+案件情景模拟：分阶段、多轮、可分支选择并反馈法律后果
+数字人多模态呈现：Unity WebGL 数字人播报 + 口型/表情/动作同步
+全链路闭环：从输入到输出稳定可用，具备基础评测与日志
+1.2 不做的事情（边界）
+不做法律责任承诺（必须提供免责声明）
+不做自研大模型训练/微调
+不追求影视级口型与情绪（以“可用、稳定、可解释”为准）
+
+2. 技术选型（确定版）
+2.1 前端（Web 交互层）
+框架：Vue 3 + Vite
+UI：Element Plus（如你坚持 Vue2，则用 Element UI
+路由/状态：Vue Router + Pinia
+请求：Axios
+音频：Web Audio API（播放/音量/事件监听），录音可用 MediaRecorder
+职责：聊天 UI、证据卡片、案件流程面板、数字人容器、音频控制
+2.2 数字人（表现渲染层）
+引擎：Unity 2022 LTS（建议）
+构建：WebGL
+动画：Animator + BlendShape（口型、表情）
+口型策略：优先实现能量驱动开合（保底稳定），可扩展到音素/viseme
+2.3 后端（系统决策层）
+推荐框架：FastAPI + Uvicorn
+职责：会话/状态机、RAG 检索编排、LLM 调用、答案结构化、TTS/ASR 调用、日志与评测
+2.4 数据与检索
+关系库（会话/案件/日志）：MySQL（原型阶段可先 SQLite，后续再迁移）
+向量库（法条/案例 chunk）：Qdrant / Milvus / pgvector（三选一，优先 Qdrant 上手快）
+混合检索（可选增强）：
+不上 ES：BM25（SQLite FTS/Whoosh）+ 向量检索融合
+上 ES：Elasticsearch/OpenSearch（工作量更大，作为加分项）
+2.5 外部模型 API
+LLM：市面主流 API（豆包/Qwen/deepseek等任选其一）
+Embedding：同厂 Embedding API 或通用 Embedding API
+TTS/ASR：同厂语音 API（建议）；浏览器 Web Speech 作为备用但可控性较差
+
+3. 总体架构（分层与模块）
+3.1 三层架构
+感知交互层（Vue）：文本输入/语音输入、展示、把结果交给数字人播放
+系统决策层（FastAPI）：RAG+LLM、案件状态机、对话上下文管理
+表现渲染层（Unity WebGL）：数字人播报、口型/表情/动作渲染
+3.2 决策层三大子模块（必须实现）
+法律推理与问答模块（RAG）
+思维签名机制：系统在生成最终回复前，强制 LLM 在私有上下文中进行 <thinking> 过程。该过程包含：
+事实提取：从用户输入中抽取的法律关键要素。
+规则匹配：检索到的法条与事实的关联性分析。
+风险评估：基于法律逻辑得出的潜在后果预判。
+案件状态管理与交互逻辑控制模块（FSM/流程引导）
+对话与上下文管理模块（多轮一致性）
+需要完成的“工作内容清单”
+4.1 法律知识库构建（RAG 座） + 典型案例/解读）
+清洗与切分（按“条/款/段”粒度，避免超长 chunk）
+元数据标注：法律名称、条号、章节、主题标签（租赁/劳动/消费）、来源
+Embedding 入库（向量库）
+原文存储与引用映射（chunk_id → 原文、条号、来源）
+验收标准
+任意 query 能返回 Top-K 相关 chunk（含条号/来源字段）
+chunk 可回溯到原文位置（可在前端展示“依据卡片”）
+4.2 混合 RAG 问答（核心）
+查询构造：用户问题 +（案件状态/槽位信息）→ 检索 query
+检索：向量 TopK（可融合 BM25/关键词）
+重排（可选加分）：reranker 或 LLM relevance scoring
+上下文组装：把证据按“法条优先、案例辅助”组织
+生成：LLM 输出结构化 JSON（强制引用证据）
+可信约束：无证据则拒答并追问必要信息
+验收标准
+输出包含：结论、分析、建议、引用依据（条号/来源）
+“条号/依据”来自检索证据集合，不能编造（后端做校验）
+4.3 案件情景模拟（至少 1–2 个场景）
+设计案件模板（状态机 FSM）
+定义槽位（必问事实）：例如租赁押金/兼职合同/消费维权
+状态转移：事实确认 → 争议识别 → 方案选择 → 后果反馈
+分支路径：不同选择触发不同提示与后果解释
+状态注入 RAG：不同阶段检索与生成策略不同
+验收标准
+一个场景可完整走完 4 阶段以上流程
+分支选择至少 2 条路径产生不同结果文本与依据
+4.4 数字人多模态（Unity WebGL）
+Unity 角色导入（现成模型即可）
+动作与表情：至少 idle + 1–2 个手势/表情
+TTS 播放：接收音频 URL/流并播放
+口型同步（分层策略）
+V1：音频能量驱动嘴型开合（稳定保底）
+V2：音素/viseme 时间轴驱动（加分项）
+Unity-Web 通信协议（见第 7 节）
+验收标准
+回答时数字人能同步播报（音频 + 字幕）
+口型随语音变化（至少开合可见）
+表情/姿态可按“情绪标签”切换
+4.5 系统集成与评测
+端到端链路：输入 → 后端 → 输出 → 数字人播放
+日志：检索命中、引用、生成耗时、用户选择路径
+测试：功能用例 + 延迟统计 + 抽样准确性评估
+验收标准
+连续多轮对话不丢上下文（同一 session）
+常见场景响应时间在可接受范围（论文给出实测数据即可）
+提供测试报告与截图/录屏证据
+
+5. 关键数据结构（建议定死，便于前后端联调）
+5.1 知识库 Chunk（向量库/原文库统一结构）
+chunk_id（唯一）
+text（正文）
+law_name（法律名称）
+article_no（条号/案号）
+section（章节）
+tags（主题标签：租赁/劳动/消费…）
+source（来源）
+created_at
+5.2 会话与案件状态
+session_id
+user_id（可选）
+history（多轮消息）
+case_mode（是否处于案件模拟）
+case_id（当前案件模板）
+state（当前阶段）
+slots（已确认事实键值）
+path（分支选择路径）
+updated_at
+
+6. LLM 输出规范（统一 JSON，强约束可验收）
+后端要求 LLM 必须返回：
+conclusion：结论/摘要
+analysis：分点分析（可包含推理链但不需要暴露内部思考）
+actions：可执行建议
+citations：依据列表（必须可回溯到 chunk_id / 条号）
+assumptions：基于哪些事实假设
+follow_up_questions：缺信息时的追问
+emotion：给数字人的情绪标签（calm/serious/supportive/warning）
+
+7. 核心接口（前后端/Unity 联调依据）
+7.1 Web → 后端（REST）
+POST /api/chat
+入参：session_id, text, mode(chat/case), case_state(可选)
+出参：answer_json（含 citations、emotion）、audio_url（可选）
+POST /api/case/start
+入参：case_id
+出参：初始引导语 + 第一个问题
+POST /api/case/step
+入参：session_id, user_input / user_choice
+出参：当前阶段反馈 + 下一步问题 + citations + emotion + audio_url
+GET /api/knowledge/search（调试用）
+POST /api/feedback（用户满意度/纠错提交）
+7.2 Web → Unity（统一消息协议）
+建议固定 4 个指令（越少越稳）：
+Avatar.Play(audioUrl, subtitleText)
+Avatar.SetEmotion(emotionTag)
+Avatar.SetGesture(gestureTag)（可选）
+Avatar.Stop()
+Unity 回调 Web：
+OnAvatarReady()
+OnPlayFinished()
+
+8. 页面与组件（Vue + Element Plus 实施清单）
+8.1 页面
+/chat：法律问答（默认入口）
+/case：案件模拟（选择模板、阶段推进）
+/settings：模型/检索参数（TopK、是否混合检索、是否启用重排）
+/admin（可选）：知识库导入与检索调试
+8.2 关键组件
+ChatPanel（消息流）
+EvidenceCard（引用依据折叠展示）ReasoningPanel：用于动态展示 AI 的思维签名过程，支持折叠/展开，增强教育交互感。
+CaseStepper（阶段条 + 选项区）
+AvatarContainer（Unity WebGL 容器）
+AudioControl（播放、字幕开关）
+
+9. 测试与验收（论文所需材料）
+9.1 功能测试用例（建议至少 20 条）
+10 条普通问答（劳动/租赁/消费各覆盖）
+5 条信息不全触发追问
+5 条案件模拟分支路径
+9.2 关键指标（论文可写）
+引用依据命中率（回答是否给出有效 citations）
+无依据拒答率（没检索到证据时是否能拒答并追问）
+端到端延迟（P50/P90）
+稳定性：连续 N 轮对话不崩溃、不丢状态
+
+10. 里程碑（按你当前进度可直接执行）
+从现在起建议按 6 个 Sprint 推进（每 Sprint 1–2 周）：
+Sprint 0：工程脚手架（Vue/FastAPI/Unity WebGL 通信跑通）
+Sprint 1：知识库构建 + 向量检索接口
+Sprint 2：RAG 问答闭环（结构化 JSON + 引用卡片）
+Sprint 3：案件模拟（至少 1 个场景 FSM 全流程）
+Sprint 4：数字人播报 + 口型保底实现 + 情绪标签驱动
+Sprint 5：系统集成、测试报告、论文数据采集
+
+11. 风险与对策（提前写进论文更稳）
+幻觉风险：强制 citations、无证据拒答、后端引用校验
+口型难度：先能量驱动保底，再做 viseme 增强
+WebGL 性能：模型轻量化、减少高耗 Shader、音频流控制
+成本与限流：缓存 embedding、复用 session、可配置降级策略
+

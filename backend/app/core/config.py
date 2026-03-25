@@ -22,8 +22,14 @@ class Settings(BaseSettings):
     metrics_db_path: str = Field(default="data/metrics.db", alias="METRICS_DB_PATH")
     embedding_provider: str = Field(default="mock", alias="EMBEDDING_PROVIDER")
     embedding_dim: int = Field(default=384, alias="EMBEDDING_DIM")
+    embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
+    embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
+    embedding_model: str = Field(default="", alias="EMBEDDING_MODEL")
     chat_top_k: int = Field(default=5, alias="CHAT_TOP_K")
     llm_provider: str = Field(default="mock", alias="LLM_PROVIDER")
+    llm_base_url: str = Field(default="", alias="LLM_BASE_URL")
+    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_model: str = Field(default="", alias="LLM_MODEL")
     ark_base_url: str = Field(default="https://ark.cn-beijing.volces.com/api/v3", alias="ARK_BASE_URL")
     ark_api_key: str = Field(default="", alias="ARK_API_KEY")
     ark_model: str = Field(default="", alias="ARK_MODEL")
@@ -38,6 +44,33 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         # 支持用逗号分隔多个 origin
         return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+
+    def resolved_llm_base_url(self) -> str:
+        return (self.llm_base_url or self.ark_base_url).rstrip("/")
+
+    def resolved_llm_api_key(self) -> str:
+        return (self.llm_api_key or self.ark_api_key).strip()
+
+    def resolved_llm_model(self) -> str:
+        return (self.llm_model or self.ark_model).strip()
+
+    def resolved_embedding_base_url(self) -> str:
+        return (self.embedding_base_url or self.ark_base_url).rstrip("/")
+
+    def resolved_embedding_api_key(self) -> str:
+        return (self.embedding_api_key or self.ark_api_key).strip()
+
+    def resolved_embedding_model(self) -> str:
+        return (self.embedding_model or self.ark_embedding_model or self.ark_model).strip()
+
+    def resolved_tts_base_url(self) -> str:
+        return (self.tts_base_url or self.ark_base_url).rstrip("/")
+
+    def resolved_tts_api_key(self) -> str:
+        return (self.tts_api_key or self.ark_api_key).strip()
+
+    def resolved_tts_model(self) -> str:
+        return (self.tts_model or self.ark_model).strip()
 
 
 settings = Settings()

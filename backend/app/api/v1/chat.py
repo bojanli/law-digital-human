@@ -10,6 +10,7 @@ from app.services import chat as chat_service
 from app.services import knowledge as knowledge_service
 from app.services import metrics as metrics_service
 from app.services import tts as tts_service
+from app.services import session_store
 
 router = APIRouter(prefix="/api", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -21,8 +22,23 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
     request_id = getattr(request.state, "request_id", "")
     audio_url: str | None = None
     try:
-        evidence = knowledge_service.search(req.text, settings.chat_top_k)
-        answer = chat_service.build_answer(req, evidence)
+        # 1. 获取历史记录
+        history = session_store.get_chat_history(req.session_id)
+        
+        # 2. Query Rewrite
+        rewritten_text = chat_service.rewrite_query(history, req.text) if history else req.text
+        
+        # 3. 检索时使用重写后的 rewritten_text
+        evidence = knowledge_service.search(rewritten_text, settings.chat_top_k)
+        
+        # 4. 回答时带上 context
+        answer = chat_service.build_answer(req, evidence, history)
+        
+        # 5. 更新并保存新的历史记录
+        history.append({"role": "user", "content": req.text})
+        history.append({"role": "assistant", "content": answer.conclusion})
+        session_store.save_chat_history(req.session_id, history)
+        
         try:
             audio_url = tts_service.synthesize(answer.conclusion, emotion=answer.emotion)
         except Exception:

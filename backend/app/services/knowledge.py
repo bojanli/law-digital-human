@@ -38,10 +38,10 @@ def _ensure_chunks_table(conn: sqlite3.Connection) -> None:
 
 def _get_qdrant() -> QdrantClient:
     try:
-        return QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+        return QdrantClient(url=settings.qdrant_url, check_compatibility=False, timeout=5)
     except TypeError:
         # Newer qdrant-client versions may remove this argument.
-        return QdrantClient(url=settings.qdrant_url)
+        return QdrantClient(url=settings.qdrant_url, timeout=5)
 
 
 def ensure_collection() -> None:

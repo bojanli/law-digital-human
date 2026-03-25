@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -12,6 +13,11 @@ from app.services import tts as tts_service
 router = APIRouter(prefix="/api/case", tags=["case"])
 logger = logging.getLogger(__name__)
 
+
+@router.get("/catalog")
+def get_catalog() -> list[dict[str, Any]]:
+    """返回可选案件列表"""
+    return case_service.get_catalog()
 
 @router.post("/start", response_model=CaseResponse)
 def start_case(req: CaseStartRequest, request: Request) -> CaseResponse:

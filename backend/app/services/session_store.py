@@ -35,6 +35,20 @@ def ensure_case_sessions_table() -> None:
         conn.commit()
 
 
+def ensure_chat_sessions_table() -> None:
+    with closing(_get_conn()) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                session_id TEXT PRIMARY KEY,
+                history_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.commit()
+
+
 def get_session(session_id: str) -> dict[str, Any] | None:
     ensure_case_sessions_table()
     with closing(_get_conn()) as conn:
@@ -75,4 +89,41 @@ def delete_session(session_id: str) -> None:
     ensure_case_sessions_table()
     with closing(_get_conn()) as conn:
         conn.execute("DELETE FROM case_sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+
+
+def get_chat_history(session_id: str) -> list[dict[str, str]]:
+    ensure_chat_sessions_table()
+    with closing(_get_conn()) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT history_json FROM chat_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        history = json.loads(str(row["history_json"]))
+    except json.JSONDecodeError:
+        return []
+    return history if isinstance(history, list) else []
+
+
+def save_chat_history(session_id: str, history: list[dict[str, str]]) -> None:
+    # 只保留最近 3 轮(6条)记录，防止上下文爆炸
+    history = history[-6:]
+    ensure_chat_sessions_table()
+    payload = json.dumps(history, ensure_ascii=False)
+    with closing(_get_conn()) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions (session_id, history_json, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(session_id)
+            DO UPDATE SET
+                history_json = excluded.history_json,
+                updated_at = datetime('now')
+            """,
+            (session_id, payload),
+        )
         conn.commit()

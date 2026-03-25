@@ -33,20 +33,22 @@ def _mock_audio_data_url() -> str:
 
 
 def _ark_audio_data_url(text: str, emotion: str) -> str | None:
-    if not settings.tts_api_key or not settings.tts_model:
+    api_key = settings.resolved_tts_api_key()
+    model = settings.resolved_tts_model()
+    if not api_key or not model:
         return None
     payload = {
-        "model": settings.tts_model,
+        "model": model,
         "input": text[:600],
         "voice": settings.tts_voice,
         "emotion": emotion,
         "format": "wav",
     }
     req_obj = request.Request(
-        url=f"{settings.tts_base_url.rstrip('/')}/audio/speech",
+        url=f"{settings.resolved_tts_base_url()}/audio/speech",
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {settings.tts_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
         method="POST",

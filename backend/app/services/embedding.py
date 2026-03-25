@@ -29,11 +29,12 @@ def _mock_embed(text: str, dim: int) -> list[float]:
 
 
 def _ark_embed(text: str) -> list[float]:
-    if not settings.ark_api_key:
-        raise ValueError("ARK_API_KEY is empty")
-    model = settings.ark_embedding_model or settings.ark_model
+    api_key = settings.resolved_embedding_api_key()
+    if not api_key:
+        raise ValueError("EMBEDDING_API_KEY/ARK_API_KEY is empty")
+    model = settings.resolved_embedding_model()
     if not model:
-        raise ValueError("ARK_EMBEDDING_MODEL is empty")
+        raise ValueError("EMBEDDING_MODEL/ARK_EMBEDDING_MODEL is empty")
 
     use_multimodal = "vision" in model.lower()
     if use_multimodal:
@@ -47,17 +48,17 @@ def _ark_embed(text: str) -> list[float]:
             ],
             "encoding_format": "float",
         }
-        url = f"{settings.ark_base_url.rstrip('/')}/embeddings/multimodal"
+        url = f"{settings.resolved_embedding_base_url()}/embeddings/multimodal"
     else:
         payload = {
             "model": model,
             "input": text,
             "encoding_format": "float",
         }
-        url = f"{settings.ark_base_url.rstrip('/')}/embeddings"
+        url = f"{settings.resolved_embedding_base_url()}/embeddings"
     data = json.dumps(payload).encode("utf-8")
     headers = {
-        "Authorization": f"Bearer {settings.ark_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     last_exc = None
@@ -65,7 +66,7 @@ def _ark_embed(text: str) -> list[float]:
     for attempt in range(3):
         req_obj = request.Request(url=url, data=data, headers=headers, method="POST")
         try:
-            with _NO_PROXY_OPENER.open(req_obj, timeout=60) as resp:
+            with _NO_PROXY_OPENER.open(req_obj, timeout=10) as resp:
                 body = resp.read().decode("utf-8")
             break
         except error.HTTPError as exc:

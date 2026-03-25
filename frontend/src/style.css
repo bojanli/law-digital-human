@@ -1,8 +1,8 @@
 :root {
-  --text-primary: #10283f;
-  --text-muted: #3c5970;
-  --accent: #2f7f8f;
-  --accent-strong: #1f6277;
+  --text-primary: #191970;
+  --text-muted: #20B2AA;
+  --accent: #800000;
+  --accent-strong: #000000;
   --glass-bg: rgba(255, 255, 255, 0.3);
   --glass-border: rgba(255, 255, 255, 0.2);
 }
