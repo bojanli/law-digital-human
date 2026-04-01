@@ -1,0 +1,13 @@
+{
+  "chat_top_k": 5,
+  "hybrid_retrieval": true,
+  "enable_rerank": true,
+  "reject_without_evidence": true,
+  "strict_citation_check": true,
+  "default_emotion": "calm",
+  "knowledge_collection": "laws",
+  "case_collection": "cases",
+  "chat_case_top_k": 3,
+  "embedding_provider": "doubao",
+  "timeout_sec": 30
+}

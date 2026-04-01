@@ -14,6 +14,11 @@ class KnowledgeChunk(BaseModel):
     section: str | None = None
     tags: str | None = None
     source: str | None = None
+    source_type: str | None = None
+    case_id: str | None = None
+    case_name: str | None = None
+    charges: str | None = None
+    articles: str | None = None
     score: float | None = None
 
 

@@ -9,6 +9,7 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.services import chat as chat_service
 from app.services import knowledge as knowledge_service
 from app.services import metrics as metrics_service
+from app.services import runtime_config as runtime_config_service
 from app.services import tts as tts_service
 from app.services import session_store
 
@@ -29,7 +30,8 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         rewritten_text = chat_service.rewrite_query(history, req.text) if history else req.text
         
         # 3. 检索时使用重写后的 rewritten_text
-        evidence = knowledge_service.search(rewritten_text, settings.chat_top_k)
+        runtime = runtime_config_service.get_runtime_config()
+        evidence = knowledge_service.search(rewritten_text, runtime.chat_top_k)
         
         # 4. 回答时带上 context
         answer = chat_service.build_answer(req, evidence, history)
@@ -70,6 +72,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             request_id=request_id,
             meta={
                 "mode": req.mode,
+                "top_k": runtime.chat_top_k,
                 "evidence": len(evidence),
                 "citations": len(answer.citations),
                 "answer_emotion": answer.emotion,

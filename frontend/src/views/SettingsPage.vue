@@ -6,7 +6,9 @@
           <p class="eyebrow">System Tuning Console</p>
           <h1 class="title">系统设置</h1>
         </div>
-        <button type="button" class="save-btn" @click="saveSettings">保存参数</button>
+        <button type="button" class="save-btn" :disabled="loading || saving" @click="saveSettings">
+          {{ saving ? "保存中..." : loading ? "加载中..." : "保存参数" }}
+        </button>
       </header>
 
       <div class="settings-grid">
@@ -96,8 +98,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
+import axios from "axios";
 import { ElMessage } from "element-plus";
+
+type RuntimeConfig = {
+  chat_top_k: number;
+  hybrid_retrieval: boolean;
+  enable_rerank: boolean;
+  reject_without_evidence: boolean;
+  strict_citation_check: boolean;
+  default_emotion: "calm" | "supportive" | "serious" | "warning";
+  knowledge_collection: string;
+  embedding_provider: "mock" | "ark" | "doubao";
+  timeout_sec: number;
+};
 
 const topK = ref(5);
 const hybridRetrieval = ref(false);
@@ -111,10 +126,66 @@ const showAdvanced = ref(false);
 const knowledgeCollection = ref("laws");
 const embeddingProvider = ref("mock");
 const timeoutSec = ref(30);
+const loading = ref(false);
+const saving = ref(false);
 
-function saveSettings(): void {
-  ElMessage.success("参数已暂存（当前为前端展示框架，可后续接入后端配置接口）");
+function applyConfig(config: RuntimeConfig): void {
+  topK.value = config.chat_top_k;
+  hybridRetrieval.value = config.hybrid_retrieval;
+  enableRerank.value = config.enable_rerank;
+  rejectWithoutEvidence.value = config.reject_without_evidence;
+  strictCitationCheck.value = config.strict_citation_check;
+  defaultEmotion.value = config.default_emotion;
+  knowledgeCollection.value = config.knowledge_collection;
+  embeddingProvider.value = config.embedding_provider;
+  timeoutSec.value = config.timeout_sec;
 }
+
+function buildPayload(): RuntimeConfig {
+  return {
+    chat_top_k: topK.value,
+    hybrid_retrieval: hybridRetrieval.value,
+    enable_rerank: enableRerank.value,
+    reject_without_evidence: rejectWithoutEvidence.value,
+    strict_citation_check: strictCitationCheck.value,
+    default_emotion: defaultEmotion.value as RuntimeConfig["default_emotion"],
+    knowledge_collection: knowledgeCollection.value.trim() || "laws",
+    embedding_provider: embeddingProvider.value as RuntimeConfig["embedding_provider"],
+    timeout_sec: timeoutSec.value,
+  };
+}
+
+async function loadSettings(): Promise<void> {
+  loading.value = true;
+  try {
+    const res = await axios.get<RuntimeConfig>("/api/admin/runtime-config");
+    applyConfig(res.data);
+  } catch {
+    ElMessage.error("读取运行时配置失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function saveSettings(): Promise<void> {
+  if (saving.value) {
+    return;
+  }
+  saving.value = true;
+  try {
+    const res = await axios.put<RuntimeConfig>("/api/admin/runtime-config", buildPayload());
+    applyConfig(res.data);
+    ElMessage.success("运行时配置已保存并生效");
+  } catch {
+    ElMessage.error("保存配置失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+onMounted(() => {
+  void loadSettings();
+});
 </script>
 
 <style scoped>
@@ -159,6 +230,11 @@ function saveSettings(): void {
   color: #fff;
   padding: 0.52rem 0.86rem;
   cursor: pointer;
+}
+
+.save-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .settings-grid {

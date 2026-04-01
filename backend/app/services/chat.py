@@ -7,22 +7,27 @@ from urllib import error, request
 from app.core.config import settings
 from app.schemas.chat import AnswerJson, ChatRequest
 from app.schemas.common import Citation
+from app.services.runtime_config import get_runtime_config
 
 logger = logging.getLogger(__name__)
 
 
 def build_answer(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dict[str, str]] | None = None) -> AnswerJson:
+    runtime = get_runtime_config()
+    if runtime.reject_without_evidence and not evidence:
+        return _reject_without_evidence(req)
+
     provider = settings.llm_provider.strip().lower()
+    answer: AnswerJson | None = None
     if provider in {"doubao", "ark"} and settings.resolved_llm_api_key() and settings.resolved_llm_model():
         answer = _ask_ark(req, evidence, history)
-        if answer is not None:
-            return answer
-    return _fallback_answer(req, evidence)
+    if answer is None:
+        answer = _fallback_answer(req, evidence)
+    return _finalize_answer(answer, evidence, runtime.default_emotion, runtime.strict_citation_check)
 
 
 def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dict[str, str]] | None = None) -> AnswerJson | None:
     evidence_text = _render_evidence_text(evidence)
-    citations = _to_citations(evidence[:3])
 
     system_prompt = (
         "你是一个专业的高校法律普法 AI 助手，名叫「法律数字人」。你的职责是：\n"
@@ -31,12 +36,19 @@ def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dic
         "3. 如果用户的问题不是法律问题（比如打招呼、闲聊），请友好地回应并引导用户提出法律问题\n"
         "4. 回答要有温度，不要生硬\n"
         "5. 禁止编造不存在的法条。如果你不确定，请诚实说明\n"
-        "6. 如果知识库没有相关法条也没关系，你可以基于你的法律知识进行解答，但要注明仅供参考\n\n"
-        "请直接用自然的中文回复，不需要输出 JSON 格式。回答要简洁专业但有亲和力。"
+        "6. 必须输出严格 JSON，不要输出 markdown，不要输出解释。\n\n"
+        "返回结构："
+        '{"conclusion":"结论","analysis":["分析1"],"actions":["建议1"],'
+        '"assumptions":["事实假设"],"follow_up_questions":["追问1"],'
+        '"emotion":"calm","citation_chunk_ids":["chunk_id_1"]}'
     )
 
     if evidence_text != "无":
-        system_prompt += f"\n\n以下是从知识库检索到的相关法律条文，你可以引用：\n{evidence_text}"
+        system_prompt += (
+            "\n\n以下是检索到的依据（包含法条与真实案例）：\n"
+            "请优先使用法条给出规则，再引用案例做类比说明。\n"
+            f"{evidence_text}"
+        )
 
     messages = [{"role": "system", "content": system_prompt}]
     if history:
@@ -60,7 +72,7 @@ def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dic
         method="POST",
     )
     try:
-        with request.urlopen(req_obj, timeout=30) as resp:
+        with request.urlopen(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read().decode("utf-8")
     except error.HTTPError as e:
         logger.warning("LLM HTTPError: %s", e)
@@ -84,8 +96,7 @@ def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dic
     if json_answer is not None:
         return json_answer
 
-    # 非 JSON 格式，直接将自然语言回复包装成 AnswerJson
-    # 智能拆分回复内容
+    # 非 JSON 格式时，尽量把自然语言回复压回结构化 AnswerJson。
     conclusion, analysis, actions, follow_ups = _split_natural_response(content)
 
     return AnswerJson(
@@ -94,8 +105,8 @@ def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dic
         actions=actions,
         assumptions=[],
         follow_up_questions=follow_ups,
-        citations=citations,
-        emotion="calm",
+        citations=[],
+        emotion=get_runtime_config().default_emotion,
     )
 
 
@@ -138,7 +149,7 @@ def _try_parse_json_answer(content: str, evidence: list[dict[str, Any]]) -> Answ
     )
 
 
-def _split_natural_response(content: str) -> tuple[list[str], list[str], list[str], list[str]]:
+def _split_natural_response(content: str) -> tuple[str, list[str], list[str], list[str]]:
     """将自然语言回复智能拆分为 conclusion, analysis, actions, follow_ups"""
     lines = [line.strip() for line in content.split("\n") if line.strip()]
 
@@ -195,6 +206,9 @@ def _pick_citations_by_ids(evidence: list[dict[str, Any]], chunk_ids: list[str])
                 article_no=item.get("article_no"),
                 section=item.get("section"),
                 source=item.get("source"),
+                source_type=item.get("source_type"),
+                case_id=item.get("case_id"),
+                case_name=item.get("case_name"),
             )
         )
     return picked
@@ -213,6 +227,9 @@ def _to_citations(evidence: list[dict[str, Any]]) -> list[Citation]:
                 article_no=item.get("article_no"),
                 section=item.get("section"),
                 source=item.get("source"),
+                source_type=item.get("source_type"),
+                case_id=item.get("case_id"),
+                case_name=item.get("case_name"),
             )
         )
     return citations
@@ -223,9 +240,13 @@ def _render_evidence_text(evidence: list[dict[str, Any]]) -> str:
         return "无"
     lines: list[str] = []
     for i, item in enumerate(evidence[:8], start=1):
+        source_type = str(item.get("source_type") or "law")
+        head = "法条" if source_type == "law" else "案例"
+        name = item.get("law_name") if source_type == "law" else (item.get("case_name") or item.get("law_name"))
+        index = item.get("article_no") if source_type == "law" else (item.get("case_id") or "案例")
         lines.append(
-            f"{i}. chunk_id={item.get('chunk_id')} | 法律={item.get('law_name')} | "
-            f"条号={item.get('article_no')} | 内容={str(item.get('text', ''))[:220]}"
+            f"{i}. 类型={head} | chunk_id={item.get('chunk_id')} | 名称={name} | "
+            f"标识={index} | 内容={str(item.get('text', ''))[:220]}"
         )
     return "\n".join(lines)
 
@@ -244,7 +265,90 @@ def _fallback_answer(req: ChatRequest, evidence: list[dict[str, Any]]) -> Answer
         assumptions=[],
         follow_up_questions=["请问你遇到了什么法律问题？"],
         citations=citations,
-        emotion="calm",
+        emotion=get_runtime_config().default_emotion,
+    )
+
+
+def _reject_without_evidence(req: ChatRequest) -> AnswerJson:
+    text = (req.text or "").strip()
+    return AnswerJson(
+        conclusion="当前未检索到可核验的法律依据，暂时无法给出确定结论。",
+        analysis=[
+            "为了避免编造法条或给出不稳妥建议，系统已停止直接作答。",
+            "请先补充更具体的事实、证据或争议点，再继续分析。",
+        ],
+        actions=[
+            "补充事件时间、地点、身份关系和关键证据。",
+            "说明是否有合同、聊天记录、转账记录、截图或录音。",
+        ],
+        assumptions=[],
+        follow_up_questions=_build_follow_up_questions(text),
+        citations=[],
+        emotion="serious",
+    )
+
+
+def _build_follow_up_questions(text: str) -> list[str]:
+    hints: list[str] = []
+    if any(keyword in text for keyword in ["押金", "租房", "房东", "租客"]):
+        hints.extend(["是否签订书面租赁合同？", "押金金额和扣留理由是什么？"])
+    if any(keyword in text for keyword in ["工资", "兼职", "劳动", "加班"]):
+        hints.extend(["是否存在劳动合同或考勤记录？", "拖欠工资持续了多久？"])
+    if any(keyword in text for keyword in ["网购", "退款", "假货", "平台"]):
+        hints.extend(["是否保留订单截图和商家沟通记录？", "平台是否已经介入处理？"])
+    if not hints:
+        hints.extend(
+            [
+                "能否补充事件经过、关键时间点和争议焦点？",
+                "你目前掌握了哪些合同、聊天记录、支付凭证或截图？",
+            ]
+        )
+    return hints[:3]
+
+
+def _finalize_answer(
+    answer: AnswerJson,
+    evidence: list[dict[str, Any]],
+    default_emotion: str,
+    strict_citation_check: bool,
+) -> AnswerJson:
+    evidence_chunk_ids = {str(item.get("chunk_id")) for item in evidence if item.get("chunk_id")}
+    citations = answer.citations
+
+    if strict_citation_check:
+        citations = [citation for citation in answer.citations if citation.chunk_id in evidence_chunk_ids]
+    elif not citations:
+        citations = _to_citations(evidence[:3])
+
+    emotion = (answer.emotion or default_emotion or "calm").strip().lower()
+    if emotion not in {"calm", "serious", "supportive", "warning"}:
+        emotion = default_emotion or "calm"
+
+    if strict_citation_check and evidence and not citations:
+        return AnswerJson(
+            conclusion="当前回答未能生成可核验引用，系统已中止直接结论输出。",
+            analysis=[
+                "模型回复中缺少有效引用，无法证明结论来自已检索证据。",
+                "为保证普法内容可靠性，本轮改为谨慎提示。",
+            ],
+            actions=[
+                "请换一种问法，或补充更明确的事实描述。",
+                "也可以先查看下方已命中的法条，再继续提问。",
+            ],
+            assumptions=[],
+            follow_up_questions=answer.follow_up_questions or _build_follow_up_questions(answer.conclusion),
+            citations=[],
+            emotion="serious",
+        )
+
+    return AnswerJson(
+        conclusion=answer.conclusion.strip() if answer.conclusion else "当前暂无法输出稳定结论，请补充事实后继续。",
+        analysis=[item.strip() for item in answer.analysis if item.strip()],
+        actions=[item.strip() for item in answer.actions if item.strip()],
+        assumptions=[item.strip() for item in answer.assumptions if item.strip()],
+        follow_up_questions=[item.strip() for item in answer.follow_up_questions if item.strip()],
+        citations=citations,
+        emotion=emotion,
     )
 
 
@@ -284,7 +388,7 @@ def rewrite_query(history: list[dict[str, str]], current_query: str) -> str:
         method="POST",
     )
     try:
-        with request.urlopen(req_obj, timeout=10) as resp:
+        with request.urlopen(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read().decode("utf-8")
             raw = json.loads(body)
             rewritten = raw["choices"][0]["message"]["content"].strip()

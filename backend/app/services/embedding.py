@@ -2,14 +2,17 @@ import hashlib
 import json
 import time
 from urllib import error, request
+from http.client import IncompleteRead
 
 from app.core.config import settings
+from app.services.runtime_config import get_runtime_config
 
 _NO_PROXY_OPENER = request.build_opener(request.ProxyHandler({}))
 
 
 def embed_text(text: str, provider_override: str | None = None) -> list[float]:
-    provider = (provider_override or settings.embedding_provider).lower().strip()
+    runtime = get_runtime_config()
+    provider = (provider_override or runtime.embedding_provider or settings.embedding_provider).lower().strip()
     if provider == "mock":
         return _mock_embed(text, settings.embedding_dim)
     if provider in {"doubao", "ark"}:
@@ -66,13 +69,13 @@ def _ark_embed(text: str) -> list[float]:
     for attempt in range(3):
         req_obj = request.Request(url=url, data=data, headers=headers, method="POST")
         try:
-            with _NO_PROXY_OPENER.open(req_obj, timeout=10) as resp:
+            with _NO_PROXY_OPENER.open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
                 body = resp.read().decode("utf-8")
             break
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
             raise ValueError(f"Ark embedding HTTPError: {exc.code} {detail}") from exc
-        except (error.URLError, OSError) as exc:
+        except (error.URLError, OSError, IncompleteRead) as exc:
             last_exc = exc
             if attempt < 2:
                 time.sleep(2 ** attempt)

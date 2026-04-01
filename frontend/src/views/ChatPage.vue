@@ -104,6 +104,9 @@ type Citation = {
   article_no?: string | null;
   section?: string | null;
   source?: string | null;
+  source_type?: string | null;
+  case_id?: string | null;
+  case_name?: string | null;
 };
 
 type ReasoningSignature = {
@@ -208,6 +211,9 @@ function toCitationList(value: unknown): Citation[] {
       article_no: typeof raw.article_no === "string" ? raw.article_no : null,
       section: typeof raw.section === "string" ? raw.section : null,
       source: typeof raw.source === "string" ? raw.source : null,
+      source_type: typeof raw.source_type === "string" ? raw.source_type : null,
+      case_id: typeof raw.case_id === "string" ? raw.case_id : null,
+      case_name: typeof raw.case_name === "string" ? raw.case_name : null,
     });
   }
   return output;
@@ -217,7 +223,12 @@ function buildReasoning(answerJson: Record<string, unknown>, citations: Citation
   const facts = toStringList(answerJson.assumptions);
   const analysis = toStringList(answerJson.analysis);
   const followUps = toStringList(answerJson.follow_up_questions);
-  const rules = citations.map((c) => `${c.law_name || "法律条文"} ${c.article_no || ""}`.trim());
+  const rules = citations.map((c) => {
+    if (c.source_type === "case") {
+      return `${c.case_name || "真实案例"} ${c.case_id ? `#${c.case_id}` : ""}`.trim();
+    }
+    return `${c.law_name || "法律条文"} ${c.article_no || ""}`.trim();
+  });
 
   return {
     facts: (facts.length ? facts : analysis).slice(0, 3).map((item) => item.trim()),

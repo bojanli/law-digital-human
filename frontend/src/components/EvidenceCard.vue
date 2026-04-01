@@ -15,22 +15,22 @@
         class="citation-chip"
         @click="openCitation(citation)"
       >
-        <span class="law">{{ citation.law_name || "未标注法律名称" }}</span>
-        <span class="article">{{ citation.article_no || "条号待补充" }}</span>
+        <span class="law">{{ displayTitle(citation) }}</span>
+        <span class="article">{{ displayIndex(citation) }}</span>
       </button>
     </div>
 
     <Transition name="pop-card">
       <aside v-if="activeCitation" class="citation-pop glass-panel depth-medium">
         <header class="pop-header">
-          <p>法条依据</p>
+          <p>引用依据</p>
           <div class="ops">
             <button type="button" class="op-btn" @click="copyChunkId(activeCitation.chunk_id)">复制ID</button>
             <button type="button" class="op-btn" @click="activeCitation = null">关闭</button>
           </div>
         </header>
-        <p class="pop-law">{{ activeCitation.law_name || "未标注法律名称" }}</p>
-        <p class="pop-article">{{ activeCitation.article_no || "条号待补充" }}</p>
+        <p class="pop-law">{{ displayTitle(activeCitation) }}</p>
+        <p class="pop-article">{{ displayIndex(activeCitation) }}</p>
         <p class="meta"><strong>source:</strong> {{ activeCitation.source || "未标注" }}</p>
         <p v-if="activeCitation.section" class="meta"><strong>section:</strong> {{ activeCitation.section }}</p>
         <p class="meta"><strong>chunk_id:</strong> {{ activeCitation.chunk_id }}</p>
@@ -56,6 +56,9 @@ type Citation = {
   article_no?: string | null;
   section?: string | null;
   source?: string | null;
+  source_type?: string | null;
+  case_id?: string | null;
+  case_name?: string | null;
 };
 
 withDefaults(
@@ -73,6 +76,26 @@ const chunkText = ref("");
 const chunkLoading = ref(false);
 const chunkError = ref("");
 const chunkCache = ref<Record<string, string>>({});
+
+function displayTitle(citation: Citation | null): string {
+  if (!citation) {
+    return "未标注依据";
+  }
+  if (citation.source_type === "case") {
+    return citation.case_name || citation.law_name || "未标注案例名称";
+  }
+  return citation.law_name || "未标注法律名称";
+}
+
+function displayIndex(citation: Citation | null): string {
+  if (!citation) {
+    return "标识待补充";
+  }
+  if (citation.source_type === "case") {
+    return citation.case_id ? `案例#${citation.case_id}` : "相关案例";
+  }
+  return citation.article_no || "条号待补充";
+}
 
 function openCitation(citation: Citation): void {
   activeCitation.value = citation;
