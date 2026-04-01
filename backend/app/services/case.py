@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.schemas.case import CaseResponse, CaseStartRequest, CaseStepRequest
 from app.schemas.common import Citation
 from app.services import session_store
+from app.services.runtime_config import get_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,7 @@ def _llm_call(system_prompt: str, user_prompt: str) -> str:
         method="POST",
     )
     try:
-        with request.urlopen(req_obj, timeout=20) as resp:
+        with request.urlopen(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read().decode("utf-8")
             raw = json.loads(body)
             return raw["choices"][0]["message"]["content"].strip()

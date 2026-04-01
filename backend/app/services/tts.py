@@ -4,6 +4,7 @@ import struct
 from urllib import error, request
 
 from app.core.config import settings
+from app.services.runtime_config import get_runtime_config
 
 _NO_PROXY_OPENER = request.build_opener(request.ProxyHandler({}))
 
@@ -55,7 +56,7 @@ def _ark_audio_data_url(text: str, emotion: str) -> str | None:
     )
 
     try:
-        with _NO_PROXY_OPENER.open(req_obj, timeout=30) as resp:
+        with _NO_PROXY_OPENER.open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read()
             content_type = resp.headers.get("Content-Type", "")
     except (error.HTTPError, error.URLError, TimeoutError, OSError):
