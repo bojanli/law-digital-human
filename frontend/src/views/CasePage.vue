@@ -345,6 +345,11 @@ async function sendFreeInput(): Promise<void> {
 
     const emotion = normalizeAvatarEmotion(res.data.emotion);
     setAvatarEmotion(emotion);
+    if (res.data.audio_url) {
+      playAvatar(res.data.audio_url, res.data.text, emotion);
+    } else {
+      setAvatarSubtitle(res.data.text);
+    }
     scrollToBottom();
   } catch (err: unknown) {
     const detail =

@@ -180,7 +180,7 @@ def _run_case_item(client: TestClient, item: dict[str, Any]) -> dict[str, Any]:
     latency_ms = (time.perf_counter() - started) * 1000
     final_state = final_json.get("state")
     path_len = len(final_json.get("path") or []) if isinstance(final_json, dict) else 0
-    checks.append(("final_state_consequence_feedback", final_state == "consequence_feedback"))
+    checks.append(("final_state_verdict", final_state == "verdict"))
     checks.append(("path_len_ge_2", path_len >= 2))
 
     passed = all(flag for _, flag in checks)

@@ -66,77 +66,62 @@
   "case_branches": [
     {
       "id": "case_branch_01",
-      "case_id": "rent_deposit_dispute",
+      "case_id": "peng_yu_case",
       "steps": [
-        {
-          "user_input": "有合同，已搬走，房屋无损坏，押金2000元，有聊天记录和交接记录"
-        },
-        {
-          "user_choice": "withhold_deposit"
-        },
-        {
-          "user_choice": "mediate"
-        }
+        { "user_choice": "查看关键证据" },
+        { "user_choice": "听取双方陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "进入最终陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "部分责任" }
       ]
     },
     {
       "id": "case_branch_02",
-      "case_id": "rent_deposit_dispute",
+      "case_id": "xu_ting_case",
       "steps": [
-        {
-          "user_input": "有合同，已搬走，房屋有损坏，押金1500元"
-        },
-        {
-          "user_choice": "repair_deduction"
-        },
-        {
-          "user_choice": "litigate"
-        }
+        { "user_choice": "查看关键证据" },
+        { "user_choice": "听取双方陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "进入最终陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "有罪 / 承担全部责任" }
       ]
     },
     {
       "id": "case_branch_03",
-      "case_id": "labor_wage_arrears",
+      "case_id": "kunshan_defense_case",
       "steps": [
-        {
-          "user_input": "有劳动合同，存在加班费争议，工资已逾期未发，有工资流水和考勤"
-        },
-        {
-          "user_choice": "arrears_wage"
-        },
-        {
-          "user_choice": "arbitration"
-        }
+        { "user_choice": "查看关键证据" },
+        { "user_choice": "听取双方陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "进入最终陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "无罪 / 不承担责任" }
       ]
     },
     {
       "id": "case_branch_04",
-      "case_id": "labor_wage_arrears",
+      "case_id": "yao_jiaxin_case",
       "steps": [
-        {
-          "user_input": "存在劳动关系，工资已逾期未发，无加班费争议，有聊天记录"
-        },
-        {
-          "user_choice": "illegal_deduction"
-        },
-        {
-          "user_choice": "complaint"
-        }
+        { "user_choice": "查看关键证据" },
+        { "user_choice": "听取双方陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "进入最终陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "有罪 / 承担全部责任" }
       ]
     },
     {
       "id": "case_branch_05",
-      "case_id": "labor_wage_arrears",
+      "case_id": "jiangge_case",
       "steps": [
-        {
-          "user_input": "有劳动合同，存在加班费争议，工资已逾期未发"
-        },
-        {
-          "user_choice": "overtime_pay"
-        },
-        {
-          "user_choice": "negotiate"
-        }
+        { "user_choice": "查看关键证据" },
+        { "user_choice": "听取双方陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "进入最终陈述" },
+        { "user_choice": "继续审理" },
+        { "user_choice": "部分责任" }
       ]
     }
   ]

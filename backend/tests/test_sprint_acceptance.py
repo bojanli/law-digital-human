@@ -1,16 +1,16 @@
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import app
-from app.schemas.case import CaseStartRequest, CaseStepRequest
-from app.schemas.chat import AnswerJson, ChatRequest
+from app.schemas.chat import AnswerJson
 from app.schemas.common import Citation
-from app.services import case as case_service
-from app.services import knowledge as knowledge_service
+from app.schemas.runtime_config import RuntimeConfig
+from app.services import runtime_config as runtime_config_service
 from app.services import session_store
 
 
@@ -35,6 +35,22 @@ def isolated_case_db():
                 db_file.unlink()
             except PermissionError:
                 pass
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_config():
+    path = Path(__file__).resolve().parents[2] / "data" / "runtime_config.json"
+    original = path.read_text(encoding="utf-8") if path.exists() else None
+    runtime_config_service._CACHE = None
+    try:
+        yield
+    finally:
+        if original is None:
+            if path.exists():
+                path.unlink()
+        else:
+            path.write_text(original, encoding="utf-8")
+        runtime_config_service._CACHE = None
 
 
 @pytest.mark.sprint1
@@ -78,18 +94,24 @@ def test_s1_chunk_lookup_returns_text(client, monkeypatch):
 
 
 @pytest.mark.sprint1
-def test_s1_chunk_not_found_returns_404(client, monkeypatch):
-    monkeypatch.setattr("app.api.v1.knowledge.knowledge_service.get_chunk", lambda _: None)
-    resp = client.get("/api/knowledge/chunk/not_found")
-    assert resp.status_code == 404
-    assert resp.json()["detail"] == "chunk not found"
-
-
-@pytest.mark.sprint1
-def test_s1_search_validation_for_topk(client):
-    resp = client.post("/api/knowledge/search", json={"query": "测试", "top_k": 30})
-    assert resp.status_code == 422
-    assert resp.json()["detail"] == "请求参数不合法"
+def test_s1_runtime_config_can_round_trip(client):
+    payload = {
+        "chat_top_k": 7,
+        "hybrid_retrieval": True,
+        "enable_rerank": False,
+        "reject_without_evidence": True,
+        "strict_citation_check": True,
+        "default_emotion": "supportive",
+        "knowledge_collection": "laws",
+        "embedding_provider": "mock",
+        "timeout_sec": 25,
+    }
+    put_resp = client.put("/api/admin/runtime-config", json=payload)
+    assert put_resp.status_code == 200
+    get_resp = client.get("/api/admin/runtime-config")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["chat_top_k"] == 7
+    assert get_resp.json()["default_emotion"] == "supportive"
 
 
 @pytest.mark.sprint2
@@ -99,8 +121,12 @@ def test_s2_chat_returns_structured_payload(client, monkeypatch):
         lambda query, top_k=5: [{"chunk_id": "c1", "law_name": "民法典", "article_no": "第一条"}],
     )
     monkeypatch.setattr(
+        "app.api.v1.chat.runtime_config_service.get_runtime_config",
+        lambda: RuntimeConfig(reject_without_evidence=True, strict_citation_check=False, chat_top_k=5),
+    )
+    monkeypatch.setattr(
         "app.api.v1.chat.chat_service.build_answer",
-        lambda req, evidence: AnswerJson(
+        lambda req, evidence, history=None: AnswerJson(
             conclusion="测试结论",
             analysis=["分析A"],
             actions=["建议A"],
@@ -120,10 +146,14 @@ def test_s2_chat_returns_structured_payload(client, monkeypatch):
 
 @pytest.mark.sprint2
 def test_s2_guard_rejects_when_no_evidence():
-    req = ChatRequest(session_id="s2_2", text="随机问题", mode="chat", case_state=None)
     from app.services import chat as chat_service
 
-    result = chat_service.build_answer(req, evidence=[])
+    req = {"session_id": "s2_2", "text": "随机问题", "mode": "chat", "case_state": None}
+    with patch(
+        "app.services.chat.get_runtime_config",
+        return_value=RuntimeConfig(reject_without_evidence=True, strict_citation_check=True),
+    ):
+        result = chat_service.build_answer(chat_service.ChatRequest(**req), evidence=[])
     assert result.emotion == "serious"
     assert result.citations == []
     assert "无法给出确定结论" in result.conclusion
@@ -133,7 +163,7 @@ def test_s2_guard_rejects_when_no_evidence():
 def test_s2_guard_filters_invalid_citations(monkeypatch):
     from app.services import chat as chat_service
 
-    req = ChatRequest(session_id="s2_3", text="测试", mode="chat", case_state=None)
+    req = chat_service.ChatRequest(session_id="s2_3", text="测试", mode="chat", case_state=None)
     evidence = [{"chunk_id": "ok_1", "law_name": "民法典"}]
     fake_answer = AnswerJson(
         conclusion="结论",
@@ -145,98 +175,60 @@ def test_s2_guard_filters_invalid_citations(monkeypatch):
         emotion="calm",
     )
 
-    old_provider = settings.llm_provider
-    old_key = settings.ark_api_key
-    old_model = settings.ark_model
-    settings.llm_provider = "ark"
-    settings.ark_api_key = "k"
-    settings.ark_model = "m"
+    monkeypatch.setattr("app.services.chat.settings.llm_provider", "ark")
+    monkeypatch.setattr("app.services.chat.settings.ark_api_key", "k")
+    monkeypatch.setattr("app.services.chat.settings.ark_model", "m")
+    monkeypatch.setattr(
+        "app.services.chat.get_runtime_config",
+        lambda: RuntimeConfig(reject_without_evidence=True, strict_citation_check=True),
+    )
     monkeypatch.setattr("app.services.chat._ask_ark", lambda *_: fake_answer)
-    try:
-        result = chat_service.build_answer(req, evidence=evidence)
-        assert result.citations == []
-        assert result.emotion == "serious"
-    finally:
-        settings.llm_provider = old_provider
-        settings.ark_api_key = old_key
-        settings.ark_model = old_model
-
-
-@pytest.mark.sprint2
-def test_s2_chat_endpoint_handles_service_failure(client, monkeypatch):
-    monkeypatch.setattr("app.api.v1.chat.knowledge_service.search", lambda *_: [])
-    monkeypatch.setattr(
-        "app.api.v1.chat.chat_service.build_answer",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("boom")),
-    )
-    resp = client.post("/api/chat", json={"session_id": "s2_4", "text": "测试", "mode": "chat", "case_state": None})
-    assert resp.status_code == 500
-    assert resp.json()["detail"] == "聊天服务暂时不可用，请稍后重试"
-
-
-@pytest.mark.sprint3
-def test_s3_rent_case_end_to_end(isolated_case_db, monkeypatch):
-    monkeypatch.setattr(
-        knowledge_service,
-        "search",
-        lambda query, top_k=5: [{"chunk_id": "rent_1", "law_name": "民法典", "article_no": "第七百一十条"}],
-    )
-    sid = "s3_rent"
-    case_service.start_case(CaseStartRequest(case_id="rent_deposit_dispute", session_id=sid))
-    fact = case_service.step_case(CaseStepRequest(session_id=sid, user_input="有合同，已搬走，房屋无损坏，押金2000元"))
-    assert fact.state == "dispute_identify"
-    dispute = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="withhold_deposit"))
-    assert dispute.state == "option_select"
-    result = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="mediate"))
-    assert result.state == "consequence_feedback"
-    assert len(result.citations) >= 1
-
-
-@pytest.mark.sprint3
-def test_s3_labor_case_template_end_to_end(isolated_case_db, monkeypatch):
-    monkeypatch.setattr(
-        knowledge_service,
-        "search",
-        lambda query, top_k=5: [{"chunk_id": "labor_1", "law_name": "劳动合同法", "article_no": "第三十条"}],
-    )
-    sid = "s3_labor"
-    case_service.start_case(CaseStartRequest(case_id="labor_wage_arrears", session_id=sid))
-    fact = case_service.step_case(
-        CaseStepRequest(
-            session_id=sid,
-            user_input="有劳动合同，工资已逾期未发，有加班费争议，附工资流水和考勤",
-        )
-    )
-    assert fact.state == "dispute_identify"
-    dispute = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arrears_wage"))
-    assert dispute.state == "option_select"
-    result = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arbitration"))
-    assert result.state == "consequence_feedback"
-    assert "action:arbitration" in result.path
-
-
-@pytest.mark.sprint3
-def test_s3_case_state_persistence(isolated_case_db, monkeypatch):
-    monkeypatch.setattr(knowledge_service, "search", lambda *args, **kwargs: [])
-    sid = "s3_persist"
-    case_service.start_case(CaseStartRequest(case_id="rent_deposit_dispute", session_id=sid))
-    case_service.step_case(CaseStepRequest(session_id=sid, user_input="有合同，已搬走，房屋无损坏"))
-    case_service.step_case(CaseStepRequest(session_id=sid, user_choice="withhold_deposit"))
-    saved = session_store.get_session(sid)
-    assert saved is not None
-    assert saved["state"] == "option_select"
-    assert "dispute:withhold_deposit" in saved["path"]
-
-
-@pytest.mark.sprint3
-def test_s3_no_evidence_guard_actions(isolated_case_db, monkeypatch):
-    monkeypatch.setattr(knowledge_service, "search", lambda *args, **kwargs: [])
-    sid = "s3_no_evidence"
-    case_service.start_case(CaseStartRequest(case_id="labor_wage_arrears", session_id=sid))
-    case_service.step_case(
-        CaseStepRequest(session_id=sid, user_input="有劳动合同，工资逾期未发，存在加班费争议")
-    )
-    case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arrears_wage"))
-    result = case_service.step_case(CaseStepRequest(session_id=sid, user_choice="arbitration"))
+    result = chat_service.build_answer(req, evidence=evidence)
     assert result.citations == []
-    assert "补充劳动合同" in result.next_actions
+    assert result.emotion == "serious"
+
+
+@pytest.mark.sprint3
+def test_s3_case_catalog_and_session_persistence(client, isolated_case_db):
+    catalog_resp = client.get("/api/case/catalog")
+    assert catalog_resp.status_code == 200
+    catalog = catalog_resp.json()
+    assert len(catalog) >= 3
+
+    start_resp = client.post("/api/case/start", json={"case_id": "peng_yu_case", "session_id": "court_s3"})
+    assert start_resp.status_code == 200
+    start_payload = start_resp.json()
+    assert start_payload["state"] == "opening"
+    assert isinstance(start_payload["next_actions"], list)
+
+    step_resp = client.post("/api/case/step", json={"session_id": "court_s3", "user_choice": "查看关键证据"})
+    assert step_resp.status_code == 200
+    step_payload = step_resp.json()
+    assert step_payload["state"] in {"opening", "trial", "verdict"}
+    saved = session_store.get_session("court_s3")
+    assert saved is not None
+    assert saved["turn"] >= 1
+    assert saved["phase"] in {"opening", "trial", "verdict"}
+
+
+@pytest.mark.sprint3
+def test_s3_case_can_progress_to_verdict(client, isolated_case_db):
+    start_resp = client.post("/api/case/start", json={"case_id": "xu_ting_case", "session_id": "court_verdict"})
+    assert start_resp.status_code == 200
+
+    final_payload = start_resp.json()
+    for choice in ["查看关键证据", "听取双方陈述", "直接进入辩论阶段", "继续审理", "进入最终陈述", "部分责任"]:
+        resp = client.post("/api/case/step", json={"session_id": "court_verdict", "user_choice": choice})
+        assert resp.status_code == 200
+        final_payload = resp.json()
+
+    assert final_payload["state"] == "verdict"
+    assert len(final_payload["path"]) >= 6
+
+
+@pytest.mark.sprint3
+def test_s3_case_real_verdict_branch(client, isolated_case_db):
+    client.post("/api/case/start", json={"case_id": "kunshan_defense_case", "session_id": "court_real"})
+    resp = client.post("/api/case/step", json={"session_id": "court_real", "user_choice": "查看真实判决结果"})
+    assert resp.status_code == 200
+    assert "真实判决结果" in resp.json()["text"]

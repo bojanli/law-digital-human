@@ -22,6 +22,16 @@ dist/
 Logs/
 UserSettings/
 
+
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+Logs/
+UserSettings/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -29,3 +39,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Project Specific
+data/
+backend/.venv*/
+frontend/node_modules/
+backend/__pycache__/
+*.backup*
+progress_report*

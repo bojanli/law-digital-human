@@ -14,13 +14,14 @@ class MetricsTests(unittest.TestCase):
         self._db_relpath = f"backend/tests/.tmp/metrics_test_{uuid.uuid4().hex}.db"
         Path("backend/tests/.tmp").mkdir(parents=True, exist_ok=True)
         settings.metrics_db_path = self._db_relpath
+        self._root = Path(__file__).resolve().parents[2]
+        self._db_file = self._root / self._db_relpath
 
     def tearDown(self) -> None:
         settings.metrics_db_path = self._old_metrics_db_path
-        db_file = Path("..").resolve() / self._db_relpath
-        if db_file.exists():
+        if self._db_file.exists():
             try:
-                db_file.unlink()
+                self._db_file.unlink()
             except PermissionError:
                 pass
 
@@ -34,8 +35,7 @@ class MetricsTests(unittest.TestCase):
             meta={"k": "v"},
         )
 
-        db_file = Path("..").resolve() / self._db_relpath
-        with sqlite3.connect(db_file) as conn:
+        with sqlite3.connect(self._db_file) as conn:
             row = conn.execute(
                 "SELECT endpoint, ok, status_code, latency_ms, request_id, meta_json FROM api_metrics ORDER BY id DESC LIMIT 1"
             ).fetchone()

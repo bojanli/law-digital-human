@@ -27,10 +27,11 @@ backend/.venv/Scripts/python backend/scripts/run_sprint_acceptance.py --sprint s
 2. 无证据时触发“拒答守卫”（serious + 空 citations）。
 3. 引用不在检索结果中时触发过滤/拒答。
 4. 聊天服务异常时 API 返回稳定 500 文案。
+5. 运行时配置接口可保存并立即影响聊天参数（如 Top K、citation 守卫）。
 
-## Sprint 3（案件模拟 FSM）
+## Sprint 3（剧情法庭模拟）
 
-1. `rent_deposit_dispute` 全流程推进到 `consequence_feedback`。
-2. 新模板 `labor_wage_arrears` 全流程推进到 `consequence_feedback`。
-3. FSM 状态可持久化（path/state 可从 sqlite 恢复）。
-4. 无证据时返回补证引导动作（新模板下给出劳动证据补充项）。
+1. `/api/case/catalog` 返回可选案件列表。
+2. `peng_yu_case` 等案件可从 `opening` 推进并持久化会话。
+3. 连续多轮推进后可进入 `verdict` 阶段。
+4. “查看真实判决结果”分支可返回真实裁判结论，用于法律科普讲解。

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from app.core.config import settings
+from app.schemas.runtime_config import RuntimeConfig
 from app.schemas.chat import ChatRequest, AnswerJson
 from app.schemas.common import Citation
 from app.services import chat as chat_service
@@ -10,7 +10,11 @@ from app.services import chat as chat_service
 class ChatGuardTests(unittest.TestCase):
     def test_reject_when_no_evidence(self) -> None:
         req = ChatRequest(session_id="s1", text="房东不退押金", mode="chat", case_state=None)
-        answer = chat_service.build_answer(req, evidence=[])
+        with patch(
+            "app.services.chat.get_runtime_config",
+            return_value=RuntimeConfig(reject_without_evidence=True, strict_citation_check=True),
+        ):
+            answer = chat_service.build_answer(req, evidence=[])
         self.assertEqual(answer.emotion, "serious")
         self.assertEqual(answer.citations, [])
         self.assertIn("无法给出确定结论", answer.conclusion)
@@ -27,21 +31,50 @@ class ChatGuardTests(unittest.TestCase):
             follow_up_questions=[],
             emotion="calm",
         )
-        old_provider = settings.llm_provider
-        old_key = settings.ark_api_key
-        old_model = settings.ark_model
-        settings.llm_provider = "ark"
-        settings.ark_api_key = "k"
-        settings.ark_model = "m"
-        try:
-            with patch("app.services.chat._ask_ark", return_value=fake_answer):
-                answer = chat_service.build_answer(req, evidence=evidence)
+        with (
+            patch("app.services.chat.settings.llm_provider", "ark"),
+            patch("app.services.chat.settings.ark_api_key", "k"),
+            patch("app.services.chat.settings.ark_model", "m"),
+            patch(
+                "app.services.chat.get_runtime_config",
+                return_value=RuntimeConfig(reject_without_evidence=True, strict_citation_check=True),
+            ),
+            patch("app.services.chat._ask_ark", return_value=fake_answer),
+        ):
+            answer = chat_service.build_answer(req, evidence=evidence)
             self.assertEqual(answer.citations, [])
             self.assertEqual(answer.emotion, "serious")
-        finally:
-            settings.llm_provider = old_provider
-            settings.ark_api_key = old_key
-            settings.ark_model = old_model
+            self.assertIn("未能生成可核验引用", answer.conclusion)
+
+    def test_non_json_response_is_still_structured(self) -> None:
+        req = ChatRequest(session_id="s3", text="兼职被拖欠工资怎么办", mode="chat", case_state=None)
+        evidence = [{"chunk_id": "c_ok", "law_name": "劳动法", "article_no": "第五十条"}]
+
+        with (
+            patch("app.services.chat.settings.llm_provider", "ark"),
+            patch("app.services.chat.settings.ark_api_key", "k"),
+            patch("app.services.chat.settings.ark_model", "m"),
+            patch(
+                "app.services.chat.get_runtime_config",
+                return_value=RuntimeConfig(reject_without_evidence=True, strict_citation_check=False),
+            ),
+            patch(
+                "app.services.chat._ask_ark",
+                return_value=AnswerJson(
+                    conclusion="用人单位应当及时足额支付劳动报酬。",
+                    analysis=["拖欠工资属于常见劳动争议。"],
+                    actions=["先保留劳动合同和考勤记录。"],
+                    citations=[],
+                    assumptions=[],
+                    follow_up_questions=["你是否有工资流水？"],
+                    emotion="calm",
+                ),
+            ),
+        ):
+            answer = chat_service.build_answer(req, evidence=evidence)
+        self.assertEqual(answer.emotion, "calm")
+        self.assertGreaterEqual(len(answer.citations), 1)
+        self.assertTrue(isinstance(answer.analysis, list))
 
 
 if __name__ == "__main__":

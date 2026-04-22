@@ -11,6 +11,10 @@
     </header>
 
     <p class="avatar-subtitle">{{ subtitlePreview }}</p>
+    <div class="unity-shell">
+      <iframe ref="unityFrameRef" class="unity-frame" src="/unity/index.html" title="Unity Avatar" />
+      <p v-if="unityError" class="unity-error">{{ unityError }}</p>
+    </div>
 
     <div class="emotion-row">
       <button v-for="emotion in emotions" :key="emotion" type="button" class="chip" @click="applyEmotion(emotion)">
@@ -26,18 +30,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import {
   avatarState,
   bindAvatarCallbacks,
+  getDefaultGestureForEmotion,
   setAvatarEmotion,
   setAvatarGesture,
   stopAvatar,
   type AvatarEmotion,
 } from "../services/avatarBridge";
 
+type UnityInstance = {
+  SendMessage?: (gameObject: string, method: string, parameter?: string) => void;
+  Quit?: () => Promise<void>;
+  SetFullscreen?: (fullScreen: number) => void;
+};
+
+declare global {
+  interface Window {
+    createUnityInstance?: (
+      canvas: HTMLCanvasElement,
+      config: Record<string, unknown>,
+      onProgress?: (progress: number) => void
+    ) => Promise<UnityInstance>;
+    unityInstance?: UnityInstance;
+  }
+}
+
 const emotions: AvatarEmotion[] = ["calm", "supportive", "serious", "warning"];
 const state = avatarState;
+const unityFrameRef = ref<HTMLIFrameElement | null>(null);
+const unityError = ref("");
 
 const subtitlePreview = computed(() => {
   if (!state.subtitle) {
@@ -48,12 +72,33 @@ const subtitlePreview = computed(() => {
 
 function applyEmotion(emotion: AvatarEmotion): void {
   setAvatarEmotion(emotion);
-  const gesture = emotion === "warning" || emotion === "serious" ? "point" : "confirm";
-  setAvatarGesture(gesture);
+  setAvatarGesture(getDefaultGestureForEmotion(emotion));
+}
+
+function mountUnityFrameBridge(): void {
+  const frame = unityFrameRef.value;
+  if (!frame) {
+    unityError.value = "Unity iframe 未找到";
+    return;
+  }
+
+  window.unityInstance = {
+    SendMessage: (gameObject: string, method: string, parameter?: string) => {
+      frame.contentWindow?.postMessage(
+        { type: "unity-sendmessage", gameObject, method, parameter: parameter ?? "" },
+        "*"
+      );
+    },
+  };
 }
 
 onMounted(() => {
   bindAvatarCallbacks();
+  mountUnityFrameBridge();
+});
+
+onBeforeUnmount(() => {
+  window.unityInstance = undefined;
 });
 </script>
 
@@ -115,6 +160,37 @@ onMounted(() => {
   min-height: 2.4rem;
   font-size: 0.8rem;
   color: var(--text-primary);
+}
+
+.unity-shell {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 12, 20, 0.72);
+}
+
+.unity-frame {
+  display: block;
+  width: 100%;
+  height: clamp(360px, 52vh, 560px);
+  border: 0;
+}
+
+.unity-error {
+  position: absolute;
+  left: 0.6rem;
+  bottom: 0.4rem;
+  margin: 0;
+  padding: 0.16rem 0.4rem;
+  font-size: 0.74rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+
+.unity-error {
+  background: rgba(153, 36, 36, 0.75);
 }
 
 .emotion-row {

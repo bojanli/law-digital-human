@@ -22,6 +22,12 @@ declare global {
 }
 
 const KNOWN_EMOTIONS: readonly AvatarEmotion[] = ["calm", "serious", "supportive", "warning"] as const;
+const DEFAULT_GESTURE_BY_EMOTION: Record<AvatarEmotion, AvatarGesture> = {
+  calm: "explain",
+  supportive: "confirm",
+  serious: "point",
+  warning: "point",
+};
 
 let callbacksBound = false;
 
@@ -93,6 +99,7 @@ function handleUnityEvent(eventName: UnityEvent): void {
     avatarState.ready = true;
   } else if (eventName === "OnPlayFinished") {
     avatarState.isPlaying = false;
+    setAvatarGesture("idle");
   }
 }
 
@@ -109,6 +116,10 @@ export function setAvatarGesture(gesture: AvatarGesture): void {
   dispatchCommand("Avatar.SetGesture", { gestureTag: gesture });
 }
 
+export function getDefaultGestureForEmotion(emotion: AvatarEmotion): AvatarGesture {
+  return DEFAULT_GESTURE_BY_EMOTION[emotion];
+}
+
 export function playAvatar(audioUrl: string, subtitleText: string, emotion: AvatarEmotion = avatarState.emotion): void {
   const trimmedUrl = audioUrl.trim();
   if (!trimmedUrl) {
@@ -118,6 +129,7 @@ export function playAvatar(audioUrl: string, subtitleText: string, emotion: Avat
   if (emotion !== avatarState.emotion) {
     setAvatarEmotion(emotion);
   }
+  setAvatarGesture(getDefaultGestureForEmotion(emotion));
 
   avatarState.isPlaying = true;
   avatarState.lastAudioUrl = trimmedUrl;

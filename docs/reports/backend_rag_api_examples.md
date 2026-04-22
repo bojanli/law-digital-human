@@ -186,3 +186,47 @@ POST http://127.0.0.1:8000/api/case/step
 1. 当检索结果为空时，服务端返回拒答响应并提示补充事实。
 2. 当 `citations` 为空或不在检索结果中时，服务端拒答或过滤非法引用。
 3. 前端 EvidenceCard 只展示 `citations` 中的证据，保证可回溯与可验证。
+
+4  运行时配置接口
+
+4.1  读取运行时配置 `http://127.0.0.1:8000/api/admin/runtime-config`
+
+请求
+```
+GET http://127.0.0.1:8000/api/admin/runtime-config
+```
+
+响应
+```json
+{
+  "chat_top_k": 5,
+  "hybrid_retrieval": true,
+  "enable_rerank": true,
+  "reject_without_evidence": true,
+  "strict_citation_check": true,
+  "default_emotion": "calm",
+  "knowledge_collection": "laws",
+  "embedding_provider": "mock",
+  "timeout_sec": 30
+}
+```
+
+4.2  保存运行时配置 `http://127.0.0.1:8000/api/admin/runtime-config`
+
+请求
+```
+PUT http://127.0.0.1:8000/api/admin/runtime-config
+```
+```json
+{
+  "chat_top_k": 7,
+  "hybrid_retrieval": true,
+  "enable_rerank": false,
+  "reject_without_evidence": true,
+  "strict_citation_check": true,
+  "default_emotion": "supportive",
+  "knowledge_collection": "laws",
+  "embedding_provider": "mock",
+  "timeout_sec": 25
+}
+```
