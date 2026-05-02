@@ -7,12 +7,16 @@ from app.schemas.common import Citation
 class CaseStartRequest(BaseModel):
     case_id: str = Field(..., min_length=1, description="案件模板ID")
     session_id: str | None = Field(default=None, description="会话ID（可选，不传则后端生成）")
+    enable_tts: bool | None = Field(default=None, description="本次是否生成后端 TTS")
+    citation_strict: bool | None = Field(default=None, description="预留：案件流程 citation 严格模式")
 
 
 class CaseStepRequest(BaseModel):
     session_id: str = Field(..., min_length=1, description="会话ID")
     user_input: str | None = Field(default=None, description="用户输入")
     user_choice: str | None = Field(default=None, description="用户选择（分支）")
+    enable_tts: bool | None = Field(default=None, description="本次是否生成后端 TTS")
+    citation_strict: bool | None = Field(default=None, description="预留：案件流程 citation 严格模式")
 
     @model_validator(mode="after")
     def validate_payload(self) -> "CaseStepRequest":

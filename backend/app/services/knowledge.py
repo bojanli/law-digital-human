@@ -1,6 +1,8 @@
 import logging
 import re
 import sqlite3
+import threading
+from collections import OrderedDict
 from contextlib import closing
 from typing import Any
 from pathlib import Path
@@ -11,6 +13,13 @@ from qdrant_client.http.models import Distance, VectorParams
 from app.core.config import settings
 from app.services.embedding import embed_text
 from app.services.runtime_config import get_runtime_config
+
+
+_ENSURED_COLLECTIONS: set[str] = set()
+_ENSURE_LOCK = threading.Lock()
+_SEARCH_CACHE_MAX = 256
+_SEARCH_CACHE: "OrderedDict[tuple[str, int, str, str, bool, int], list[dict[str, Any]]]" = OrderedDict()
+_SEARCH_CACHE_LOCK = threading.Lock()
 
 
 def _get_db() -> sqlite3.Connection:
@@ -63,25 +72,50 @@ def _get_qdrant() -> QdrantClient:
 
 
 def ensure_collection() -> None:
-    client = _get_qdrant()
     runtime = get_runtime_config()
-    collections = {c.name for c in client.get_collections().collections}
+    targets = {runtime.knowledge_collection}
+    if runtime.chat_case_top_k > 0:
+        targets.add(runtime.case_collection)
 
-    if runtime.knowledge_collection not in collections:
-        client.create_collection(
-            collection_name=runtime.knowledge_collection,
-            vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
-        )
+    with _ENSURE_LOCK:
+        missing = [name for name in targets if name not in _ENSURED_COLLECTIONS]
+        if not missing:
+            return
 
-    if runtime.chat_case_top_k > 0 and runtime.case_collection not in collections:
-        client.create_collection(
-            collection_name=runtime.case_collection,
-            vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
-        )
+        client = _get_qdrant()
+        collections = {c.name for c in client.get_collections().collections}
+
+        if runtime.knowledge_collection not in collections:
+            client.create_collection(
+                collection_name=runtime.knowledge_collection,
+                vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
+            )
+        _ENSURED_COLLECTIONS.add(runtime.knowledge_collection)
+
+        if runtime.chat_case_top_k > 0:
+            if runtime.case_collection not in collections:
+                client.create_collection(
+                    collection_name=runtime.case_collection,
+                    vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
+                )
+            _ENSURED_COLLECTIONS.add(runtime.case_collection)
 
 
-def search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+def search(query: str, top_k: int = 5, use_rerank: bool | None = None) -> list[dict[str, Any]]:
     runtime = get_runtime_config()
+    enable_rerank = runtime.enable_rerank if use_rerank is None else use_rerank
+    cache_key = (
+        query.strip(),
+        int(top_k),
+        str(runtime.knowledge_collection),
+        str(runtime.case_collection),
+        bool(enable_rerank),
+        int(runtime.chat_case_top_k or 0),
+    )
+    cached = _search_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     case_top_k = max(0, int(runtime.chat_case_top_k or 0))
     case_fetch_k = max(case_top_k, case_top_k * 3) if case_top_k > 0 else 0
 
@@ -134,13 +168,15 @@ def search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     law_items = _build_law_items(law_ids, law_rows, law_score_map)
     case_items = _build_case_items(case_ids, case_rows, case_score_map)
 
-    if runtime.enable_rerank:
+    if enable_rerank:
         law_items = _rerank_by_keyword(query, law_items)
         case_items = _rerank_by_keyword(query, case_items)
     case_items = _dedupe_case_items(case_items, case_top_k)
 
     # 先法条、后案例，符合“先给依据再举例”的回答顺序。
-    return law_items + case_items
+    result = law_items + case_items
+    _search_cache_set(cache_key, result)
+    return result
 
 
 def _build_law_items(ids: list[str], rows: list[sqlite3.Row], score_map: dict[str, float]) -> list[dict[str, Any]]:
@@ -300,6 +336,8 @@ def get_chunk(chunk_id: str) -> dict[str, Any] | None:
         if row:
             data = dict(row)
             data["source_type"] = "law"
+            data["case_id"] = None
+            data["case_name"] = None
             return data
 
         case_cursor = conn.execute("SELECT * FROM case_chunks WHERE chunk_id = ?", (chunk_id,))
@@ -307,6 +345,25 @@ def get_chunk(chunk_id: str) -> dict[str, Any] | None:
         if case_row:
             data = dict(case_row)
             data["source_type"] = "case"
+            data["law_name"] = data.get("case_name")
+            data["article_no"] = "相关案例"
             return data
 
     return None
+
+
+def _search_cache_get(key: tuple[str, int, str, str, bool, int]) -> list[dict[str, Any]] | None:
+    with _SEARCH_CACHE_LOCK:
+        cached = _SEARCH_CACHE.get(key)
+        if cached is None:
+            return None
+        _SEARCH_CACHE.move_to_end(key)
+        return [dict(item) for item in cached]
+
+
+def _search_cache_set(key: tuple[str, int, str, str, bool, int], value: list[dict[str, Any]]) -> None:
+    with _SEARCH_CACHE_LOCK:
+        _SEARCH_CACHE[key] = [dict(item) for item in value]
+        _SEARCH_CACHE.move_to_end(key)
+        while len(_SEARCH_CACHE) > _SEARCH_CACHE_MAX:
+            _SEARCH_CACHE.popitem(last=False)

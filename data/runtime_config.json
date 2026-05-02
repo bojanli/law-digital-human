@@ -1,5 +1,5 @@
 {
-  "chat_top_k": 5,
+  "chat_top_k": 4,
   "hybrid_retrieval": true,
   "enable_rerank": true,
   "reject_without_evidence": true,
@@ -9,5 +9,5 @@
   "case_collection": "cases",
   "chat_case_top_k": 3,
   "embedding_provider": "doubao",
-  "timeout_sec": 30
+  "timeout_sec": 90
 }

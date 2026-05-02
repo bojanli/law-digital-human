@@ -1,6 +1,8 @@
 import hashlib
 import json
 import time
+from collections import OrderedDict
+from threading import Lock
 from urllib import error, request
 from http.client import IncompleteRead
 
@@ -8,15 +10,26 @@ from app.core.config import settings
 from app.services.runtime_config import get_runtime_config
 
 _NO_PROXY_OPENER = request.build_opener(request.ProxyHandler({}))
+_EMBED_CACHE_MAX = 512
+_EMBED_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
+_EMBED_CACHE_LOCK = Lock()
 
 
 def embed_text(text: str, provider_override: str | None = None) -> list[float]:
     runtime = get_runtime_config()
     provider = (provider_override or runtime.embedding_provider or settings.embedding_provider).lower().strip()
+    cache_key = _cache_key(provider, text)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     if provider == "mock":
-        return _mock_embed(text, settings.embedding_dim)
+        vector = _mock_embed(text, settings.embedding_dim)
+        _cache_set(cache_key, vector)
+        return vector
     if provider in {"doubao", "ark"}:
-        return _ark_embed(text)
+        vector = _ark_embed(text)
+        _cache_set(cache_key, vector)
+        return vector
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 
@@ -110,3 +123,25 @@ def _ark_embed(text: str) -> list[float]:
             "Please update EMBEDDING_DIM or switch embedding model."
         )
     return [float(x) for x in vector]
+
+
+def _cache_key(provider: str, text: str) -> str:
+    model = settings.resolved_embedding_model() if provider in {"doubao", "ark"} else "mock"
+    return f"{provider}|{model}|{text.strip()}"
+
+
+def _cache_get(key: str) -> list[float] | None:
+    with _EMBED_CACHE_LOCK:
+        cached = _EMBED_CACHE.get(key)
+        if cached is None:
+            return None
+        _EMBED_CACHE.move_to_end(key)
+        return list(cached)
+
+
+def _cache_set(key: str, vector: list[float]) -> None:
+    with _EMBED_CACHE_LOCK:
+        _EMBED_CACHE[key] = list(vector)
+        _EMBED_CACHE.move_to_end(key)
+        while len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
+            _EMBED_CACHE.popitem(last=False)

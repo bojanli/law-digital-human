@@ -4,6 +4,7 @@ from app.schemas.runtime_config import RuntimeConfig
 from app.services import runtime_config as runtime_config_service
 
 router = APIRouter(prefix="/api/admin/runtime-config", tags=["runtime-config"])
+public_router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 @router.get("", response_model=RuntimeConfig)
@@ -14,3 +15,8 @@ def get_runtime_config() -> RuntimeConfig:
 @router.put("", response_model=RuntimeConfig)
 def update_runtime_config(payload: RuntimeConfig) -> RuntimeConfig:
     return runtime_config_service.update_runtime_config(payload)
+
+
+@public_router.get("/effective", response_model=RuntimeConfig)
+def get_effective_settings() -> RuntimeConfig:
+    return runtime_config_service.get_runtime_config()

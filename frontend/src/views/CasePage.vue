@@ -1,136 +1,152 @@
 <template>
-  <div class="case-workspace">
-    <!-- 阶段 1: 案件选择 -->
-    <Transition name="fade-slide">
-      <section v-if="!sessionId" class="case-panel glass-panel depth-medium">
-        <header class="case-header">
+  <div class="case-page">
+    <section class="left-column">
+      <section class="top-nav-row">
+        <RouterLink to="/" class="home-back-btn">返回主界面</RouterLink>
+      </section>
+
+      <aside class="case-sidebar glass-panel depth-medium" :class="{ collapsed: sidebarCollapsed }">
+        <div class="sidebar-head">
           <div>
-            <p class="eyebrow">Mock Court Simulation</p>
-            <h1 class="title">⚖️ 模拟法庭</h1>
+            <p class="eyebrow">Mock Court</p>
+            <h2>案件模拟</h2>
           </div>
-          <span class="mode-pill">选择案件</span>
-        </header>
-
-        <p class="intro-text">
-          欢迎来到模拟法庭！选择一件著名案件，你将以<strong>法官</strong>的身份亲自主持审理。
-          审查证据、听取辩论、做出判决——你的选择将导向不同的结局。
-        </p>
-
-        <div v-if="catalogLoading" class="loading-hint">正在加载案件库...</div>
-
-        <div v-else class="case-grid">
-          <article
-            v-for="c in catalog"
-            :key="c.case_id"
-            class="case-card glass-panel depth-soft"
-            :class="{ selected: selectedCaseId === c.case_id }"
-            @click="selectedCaseId = c.case_id"
-          >
-            <div class="card-top">
-              <span class="category-tag">{{ c.category }}</span>
-              <span class="difficulty-tag">{{ c.difficulty }}</span>
-            </div>
-            <h2 class="case-title">{{ c.title }}</h2>
-            <p class="case-summary">{{ c.summary }}</p>
-          </article>
+          <button type="button" class="toggle-btn mobile-only" @click="sidebarCollapsed = !sidebarCollapsed">
+            {{ sidebarCollapsed ? "展开" : "收起" }}
+          </button>
         </div>
 
-        <div v-if="selectedCaseId" class="start-bar">
+        <div class="catalog-list">
+          <p v-if="catalogLoading" class="empty-text">正在加载案件库...</p>
           <button
+            v-for="item in catalog"
+            :key="item.case_id"
             type="button"
-            class="start-btn"
-            :disabled="starting"
-            @click="startCase"
+            class="catalog-item"
+            :class="{ active: selectedCaseId === item.case_id }"
+            @click="selectedCaseId = item.case_id"
           >
-            {{ starting ? "正在组建法庭..." : "🔨 开庭审理" }}
+            <span class="meta-row">
+              <small>{{ item.category }}</small>
+              <small>{{ item.difficulty }}</small>
+            </span>
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.summary }}</span>
           </button>
         </div>
-      </section>
-    </Transition>
 
-    <!-- 阶段 2: 法庭审理 -->
-    <Transition name="fade-slide">
-      <section v-if="sessionId" class="court-panel glass-panel depth-medium">
-        <header class="court-header">
-          <div>
-            <p class="eyebrow">正在审理</p>
-            <h1 class="title">{{ currentCaseTitle }}</h1>
-          </div>
-          <div class="header-right">
-            <span class="turn-pill">第 {{ turnCount }} 轮</span>
-            <span class="phase-pill" :class="currentPhase">{{ phaseLabel }}</span>
-          </div>
-        </header>
-
-        <!-- 消息流 -->
-        <div class="court-stream" ref="streamRef">
-          <TransitionGroup name="msg-slide" tag="div" class="message-list">
-            <article
-              v-for="msg in messages"
-              :key="msg.id"
-              class="court-message"
-              :class="msg.role"
-            >
-              <div class="msg-avatar">{{ msg.role === "user" ? "👨‍⚖️" : "📋" }}</div>
-              <div class="msg-content glass-panel depth-soft" :class="msg.role === 'user' ? 'msg-judge' : 'msg-court'">
-                <p class="msg-label">{{ msg.role === "user" ? "法官 (你)" : "法庭记录" }}</p>
-                <p class="msg-text">{{ msg.text }}</p>
-              </div>
-            </article>
-          </TransitionGroup>
-        </div>
-
-        <!-- 选项按钮 -->
-        <div v-if="currentQuestion" class="options-section glass-panel depth-soft">
-          <p class="options-question">{{ currentQuestion }}</p>
-          <div class="options-grid">
-            <button
-              v-for="(opt, idx) in currentOptions"
-              :key="idx"
-              type="button"
-              class="option-btn"
-              :disabled="stepping"
-              @click="makeChoice(opt)"
-            >
-              {{ opt }}
-            </button>
-          </div>
-        </div>
-
-        <!-- 自由输入 -->
-        <form class="composer glass-panel depth-soft" @submit.prevent="sendFreeInput">
-          <textarea
-            v-model="freeInput"
-            class="composer-input"
-            placeholder="也可以自由输入你的审判指令..."
-            :disabled="stepping"
-          />
-          <button type="submit" class="send-btn" :disabled="stepping || !freeInput.trim()">
-            {{ stepping ? "处理中..." : "发送" }}
+        <div class="sidebar-actions">
+          <button type="button" class="new-case-btn" :disabled="catalogLoading" @click="resetCase">
+            返回案件选择
           </button>
-        </form>
+          <button type="button" class="start-btn" :disabled="!selectedCaseId || starting" @click="startCase">
+            {{ starting ? "正在组建法庭..." : sessionId ? "重新开庭" : "开庭审理" }}
+          </button>
+        </div>
+      </aside>
+    </section>
 
-        <!-- 退出按钮 -->
-        <button type="button" class="exit-btn" @click="exitCase">退出审理，选择其他案件</button>
+    <div v-if="!sidebarCollapsed" class="sidebar-mask" @click="sidebarCollapsed = true" />
+
+    <section class="case-main">
+      <ChatHeader
+        :title="sessionId ? currentCaseTitle : '模拟法庭数字人'"
+        :backend-online="backendOk"
+        :is-recording="false"
+        :is-transcribing="stepping || starting"
+        :is-speaking="avatarState.isPlaying"
+        :avatar-connected="avatarState.ready"
+        :avatar-collapsed="avatarCollapsed"
+        :speech-controls-expanded="false"
+        @toggle-avatar="avatarCollapsed = !avatarCollapsed"
+        @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
+        @toggle-speech-controls="noop"
+      />
+
+      <section v-if="!sessionId" class="intro-panel glass-panel depth-soft">
+        <p class="eyebrow">Courtroom Brief</p>
+        <h1>选择案件后进入沉浸式庭审对话</h1>
+        <p>
+          你将以法官身份推进审理。左侧选择案件，中间阅读庭审过程并作出裁量，右侧数字人会同步播报法庭进程。
+        </p>
       </section>
-    </Transition>
 
-    <AvatarContainer class="avatar-dock" />
+      <ChatWindow :messages="chatMessages">
+        <template #extra-content>
+          <section v-if="sessionId && currentOptions.length" class="options-panel glass-panel depth-soft">
+            <p class="options-title">您作为法官，接下来可以采取以下行动，您选择？</p>
+            <div class="options-grid">
+              <button
+                v-for="opt in currentOptions"
+                :key="opt"
+                type="button"
+                class="option-btn"
+                :disabled="stepping"
+                @click="makeChoice(opt)"
+              >
+                {{ opt }}
+              </button>
+            </div>
+          </section>
+        </template>
+      </ChatWindow>
+
+      <ChatInput
+        v-model="freeInput"
+        :placeholder="sessionId ? '输入你的审判指令或裁量意见...' : '先在左侧选择案件并开庭，或提前输入你想采用的审理思路...'"
+        :disabled="stepping"
+        :send-disabled="stepping || !freeInput.trim()"
+        :voice-disabled="true"
+        voice-label="语音暂未接入"
+        :listening-text="avatarState.isPlaying ? '数字人正在播报...' : ''"
+        :interrupt-visible="true"
+        :interrupt-disabled="!avatarState.isPlaying"
+        interrupt-label="打断播报"
+        @submit="sendFreeInput"
+        @toggle-voice="noop"
+        @clear="clearDraft"
+        @interrupt="interruptCaseSpeech"
+      >
+        <template #toolbar-left>
+          <StatusBadge :label="`第 ${turnCount} 轮`" tone="info" />
+          <StatusBadge :label="phaseLabel" :tone="phaseTone" />
+          <StatusBadge :label="currentQuestion ? '等待裁量' : '庭审推进中'" :tone="currentQuestion ? 'warning' : 'neutral'" />
+        </template>
+      </ChatInput>
+    </section>
+
+    <AvatarPanel
+      class="case-avatar-panel"
+      :avatar-status="avatarPanelStatus"
+      :subtitle="avatarState.subtitle"
+      :connected="avatarState.ready"
+      :collapsed="avatarCollapsed"
+    >
+      <AvatarContainer />
+    </AvatarPanel>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
 import AvatarContainer from "../components/AvatarContainer.vue";
+import AvatarPanel from "../components/AvatarPanel.vue";
+import ChatHeader from "../components/ChatHeader.vue";
+import ChatInput from "../components/ChatInput.vue";
+import ChatWindow from "../components/ChatWindow.vue";
+import StatusBadge from "../components/StatusBadge.vue";
 import {
+  avatarState,
   normalizeAvatarEmotion,
   playAvatar,
   setAvatarEmotion,
   setAvatarSubtitle,
   stopAvatar,
 } from "../services/avatarBridge";
+import { buildCaseSettingsPayload, isUnityAvatarEnabled, loadLocalSettings } from "../services/appSettings";
+import type { ChatMessage } from "../types/chat";
 
 type CatalogItem = {
   case_id: string;
@@ -152,12 +168,6 @@ type CaseApiResponse = {
   audio_url?: string | null;
 };
 
-type CourtMessage = {
-  id: string;
-  role: "user" | "court";
-  text: string;
-};
-
 const catalog = ref<CatalogItem[]>([]);
 const catalogLoading = ref(true);
 const selectedCaseId = ref("");
@@ -165,12 +175,14 @@ const sessionId = ref("");
 const starting = ref(false);
 const stepping = ref(false);
 const freeInput = ref("");
-const messages = ref<CourtMessage[]>([]);
+const messages = ref<ChatMessage[]>([]);
 const currentQuestion = ref("");
 const currentOptions = ref<string[]>([]);
 const currentPhase = ref("opening");
 const turnCount = ref(0);
-const streamRef = ref<HTMLElement | null>(null);
+const backendOk = ref(true);
+const avatarCollapsed = ref(false);
+const sidebarCollapsed = ref(typeof window !== "undefined" ? window.innerWidth <= 900 : false);
 
 const currentCaseTitle = computed(() => {
   const found = catalog.value.find((c) => c.case_id === selectedCaseId.value);
@@ -179,11 +191,37 @@ const currentCaseTitle = computed(() => {
 
 const phaseLabel = computed(() => {
   const map: Record<string, string> = {
-    opening: "📖 开庭阶段",
-    trial: "⚖️ 审理阶段",
-    verdict: "🔨 判决阶段",
+    opening: "开庭阶段",
+    trial: "审理阶段",
+    verdict: "判决阶段",
   };
   return map[currentPhase.value] || currentPhase.value;
+});
+
+const phaseTone = computed<"neutral" | "success" | "warning" | "danger" | "info">(() => {
+  if (currentPhase.value === "opening") return "info";
+  if (currentPhase.value === "trial") return "warning";
+  if (currentPhase.value === "verdict") return "danger";
+  return "neutral";
+});
+
+const avatarPanelStatus = computed<"idle" | "listening" | "thinking" | "speaking" | "disconnected">(() => {
+  if (!avatarState.ready) return "disconnected";
+  if (avatarState.isPlaying) return "speaking";
+  if (starting.value || stepping.value) return "thinking";
+  return "idle";
+});
+
+const chatMessages = computed<ChatMessage[]>(() => {
+  if (messages.value.length) return messages.value;
+  return [
+    {
+      id: "case-intro",
+      role: "assistant",
+      text: "请选择左侧案件开始审理。庭审记录会在这里按对话方式展开。",
+      citations: [],
+    },
+  ];
 });
 
 function nextId(): string {
@@ -192,17 +230,51 @@ function nextId(): string {
 
 function scrollToBottom(): void {
   nextTick(() => {
-    if (streamRef.value) {
-      streamRef.value.scrollTop = streamRef.value.scrollHeight;
+    const node = document.querySelector(".chat-window");
+    if (node instanceof HTMLElement) {
+      node.scrollTop = node.scrollHeight;
     }
   });
+}
+
+function clearDraft(): void {
+  freeInput.value = "";
+}
+
+function noop(): void {}
+
+function unityAvatarEnabled(): boolean {
+  return isUnityAvatarEnabled(loadLocalSettings());
+}
+
+function interruptCaseSpeech(): void {
+  if (unityAvatarEnabled()) {
+    stopAvatar();
+  }
+}
+
+function resetCase(): void {
+  sessionId.value = "";
+  selectedCaseId.value = "";
+  messages.value = [];
+  currentQuestion.value = "";
+  currentOptions.value = [];
+  turnCount.value = 0;
+  currentPhase.value = "opening";
+  freeInput.value = "";
+  if (unityAvatarEnabled()) {
+    stopAvatar();
+  }
+  setAvatarSubtitle("");
 }
 
 onMounted(async () => {
   try {
     const res = await axios.get<CatalogItem[]>("/api/case/catalog");
     catalog.value = res.data;
+    backendOk.value = true;
   } catch {
+    backendOk.value = false;
     ElMessage.error("无法加载案件库");
   } finally {
     catalogLoading.value = false;
@@ -216,35 +288,40 @@ async function startCase(): Promise<void> {
     stopAvatar();
     const res = await axios.post<CaseApiResponse>("/api/case/start", {
       case_id: selectedCaseId.value,
+      ...buildCaseSettingsPayload(),
     });
     sessionId.value = res.data.session_id;
     messages.value = [];
     turnCount.value = 0;
     currentPhase.value = res.data.state || "opening";
-
     messages.value.push({
       id: nextId(),
-      role: "court",
+      role: "assistant",
       text: res.data.text,
+      citations: [],
     });
-
     currentQuestion.value = res.data.next_question || "";
     currentOptions.value = res.data.next_actions || [];
 
     const emotion = normalizeAvatarEmotion(res.data.emotion);
-    setAvatarEmotion(emotion);
-    if (res.data.audio_url) {
+    if (unityAvatarEnabled()) {
+      setAvatarEmotion(emotion);
+    }
+    if (res.data.audio_url && unityAvatarEnabled()) {
       playAvatar(res.data.audio_url, res.data.text, emotion);
-    } else {
+    } else if (unityAvatarEnabled()) {
       setAvatarSubtitle(res.data.text);
     }
 
+    backendOk.value = true;
     scrollToBottom();
-    ElMessage.success("模拟法庭已开庭 ⚖️");
+    ElMessage.success("模拟法庭已开庭");
+    if (typeof window !== "undefined" && window.innerWidth <= 900) {
+      sidebarCollapsed.value = true;
+    }
   } catch (err: unknown) {
-    const detail =
-      (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail || "开庭失败";
+    backendOk.value = false;
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "开庭失败";
     ElMessage.error(String(detail));
   } finally {
     starting.value = false;
@@ -252,16 +329,20 @@ async function startCase(): Promise<void> {
 }
 
 async function makeChoice(choice: string): Promise<void> {
+  if (avatarState.isPlaying) {
+    if (unityAvatarEnabled()) {
+      stopAvatar();
+    }
+  }
   if (!sessionId.value || stepping.value) return;
 
-  // 特殊处理"选择其他案件"
   if (choice === "选择其他案件") {
-    exitCase();
+    resetCase();
     return;
   }
   if (choice === "再审一次本案") {
     const caseId = selectedCaseId.value;
-    exitCase();
+    resetCase();
     selectedCaseId.value = caseId;
     await startCase();
     return;
@@ -269,43 +350,35 @@ async function makeChoice(choice: string): Promise<void> {
 
   stepping.value = true;
   turnCount.value += 1;
-
-  messages.value.push({
-    id: nextId(),
-    role: "user",
-    text: choice,
-  });
+  messages.value.push({ id: nextId(), role: "user", text: choice, citations: [] });
   scrollToBottom();
 
   try {
     const res = await axios.post<CaseApiResponse>("/api/case/step", {
       session_id: sessionId.value,
       user_choice: choice,
+      ...buildCaseSettingsPayload(),
     });
-
-    messages.value.push({
-      id: nextId(),
-      role: "court",
-      text: res.data.text,
-    });
-
+    messages.value.push({ id: nextId(), role: "assistant", text: res.data.text, citations: [] });
     currentQuestion.value = res.data.next_question || "";
     currentOptions.value = res.data.next_actions || [];
     currentPhase.value = res.data.state || "trial";
 
     const emotion = normalizeAvatarEmotion(res.data.emotion);
-    setAvatarEmotion(emotion);
-    if (res.data.audio_url) {
+    if (unityAvatarEnabled()) {
+      setAvatarEmotion(emotion);
+    }
+    if (res.data.audio_url && unityAvatarEnabled()) {
       playAvatar(res.data.audio_url, res.data.text, emotion);
-    } else {
+    } else if (unityAvatarEnabled()) {
       setAvatarSubtitle(res.data.text);
     }
 
+    backendOk.value = true;
     scrollToBottom();
   } catch (err: unknown) {
-    const detail =
-      (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail || "审理推进失败";
+    backendOk.value = false;
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "审理推进失败";
     ElMessage.error(String(detail));
   } finally {
     stepping.value = false;
@@ -313,310 +386,232 @@ async function makeChoice(choice: string): Promise<void> {
 }
 
 async function sendFreeInput(): Promise<void> {
+  if (avatarState.isPlaying) {
+    if (unityAvatarEnabled()) {
+      stopAvatar();
+    }
+  }
   const text = freeInput.value.trim();
-  if (!text || !sessionId.value) return;
-  freeInput.value = "";
+  if (!text || stepping.value) return;
+  if (!sessionId.value) {
+    ElMessage.warning("请先在左侧选择案件并点击“开庭审理”");
+    return;
+  }
 
+  freeInput.value = "";
   stepping.value = true;
   turnCount.value += 1;
-
-  messages.value.push({
-    id: nextId(),
-    role: "user",
-    text,
-  });
+  messages.value.push({ id: nextId(), role: "user", text, citations: [] });
   scrollToBottom();
 
   try {
     const res = await axios.post<CaseApiResponse>("/api/case/step", {
       session_id: sessionId.value,
       user_input: text,
+      ...buildCaseSettingsPayload(),
     });
-
-    messages.value.push({
-      id: nextId(),
-      role: "court",
-      text: res.data.text,
-    });
-
+    messages.value.push({ id: nextId(), role: "assistant", text: res.data.text, citations: [] });
     currentQuestion.value = res.data.next_question || "";
     currentOptions.value = res.data.next_actions || [];
     currentPhase.value = res.data.state || "trial";
 
     const emotion = normalizeAvatarEmotion(res.data.emotion);
-    setAvatarEmotion(emotion);
-    if (res.data.audio_url) {
+    if (unityAvatarEnabled()) {
+      setAvatarEmotion(emotion);
+    }
+    if (res.data.audio_url && unityAvatarEnabled()) {
       playAvatar(res.data.audio_url, res.data.text, emotion);
-    } else {
+    } else if (unityAvatarEnabled()) {
       setAvatarSubtitle(res.data.text);
     }
+
+    backendOk.value = true;
     scrollToBottom();
   } catch (err: unknown) {
-    const detail =
-      (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail || "审理推进失败";
+    backendOk.value = false;
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "审理推进失败";
     ElMessage.error(String(detail));
   } finally {
     stepping.value = false;
   }
 }
-
-function exitCase(): void {
-  sessionId.value = "";
-  selectedCaseId.value = "";
-  messages.value = [];
-  currentQuestion.value = "";
-  currentOptions.value = [];
-  turnCount.value = 0;
-  currentPhase.value = "opening";
-  stopAvatar();
-}
 </script>
 
 <style scoped>
-.case-workspace {
-  position: relative;
-  min-height: calc(100vh - 3rem);
-  padding: 1.2rem 1rem;
-  display: flex;
-  justify-content: center;
+.case-page {
+  height: 100%;
+  display: grid;
+  grid-template-columns: clamp(250px, 19vw, 330px) minmax(0, 1fr) clamp(280px, 23vw, 380px);
+  gap: 12px;
+  overflow: hidden;
 }
 
-/* ── 案件选择面板 ── */
-.case-panel {
-  width: min(980px, 100%);
-  border-radius: 28px;
-  padding: 1.2rem;
+.left-column {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
 }
 
-.case-header,
-.court-header {
+.case-sidebar {
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 30px;
+  padding: 1rem;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.8rem;
-  align-items: flex-start;
-  margin-bottom: 0.6rem;
 }
 
 .eyebrow {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.title {
-  margin: 0.1rem 0 0;
-  font-size: 1.3rem;
-  font-weight: 700;
+.sidebar-head h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.16rem;
 }
 
-.mode-pill,
-.turn-pill,
-.phase-pill {
-  border-radius: 999px;
-  padding: 0.28rem 0.68rem;
-  font-size: 0.74rem;
-  font-weight: 600;
-  background: rgba(255, 255, 255, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--text-muted);
-}
-
-.phase-pill.opening { background: rgba(100, 150, 255, 0.15); color: #2856a6; }
-.phase-pill.trial { background: rgba(255, 165, 0, 0.15); color: #a06520; }
-.phase-pill.verdict { background: rgba(220, 50, 50, 0.15); color: #8b2020; }
-
-.header-right {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.intro-text {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  line-height: 1.6;
-  margin: 0 0 1rem;
-}
-
-.loading-hint {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 2rem;
-}
-
-/* ── 案件选择卡片 ── */
-.case-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 0.8rem;
-  margin-bottom: 1rem;
-}
-
-.case-card {
-  border-radius: 18px;
-  padding: 0.9rem;
+.new-case-btn,
+.start-btn,
+.toggle-btn,
+.home-back-btn {
+  border: 0;
   cursor: pointer;
-  transition: all 0.25s ease;
-  border: 2px solid transparent;
-}
-
-.case-card:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.45);
-}
-
-.case-card.selected {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 0 3px rgba(47, 127, 143, 0.15);
-}
-
-.card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.category-tag {
-  background: rgba(47, 127, 143, 0.15);
-  color: var(--accent);
-  font-size: 0.72rem;
   font-weight: 600;
-  padding: 0.18rem 0.5rem;
-  border-radius: 999px;
+  width: 100%;
 }
 
-.difficulty-tag {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-
-.case-title {
-  margin: 0 0 0.4rem;
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.case-summary {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.start-bar {
+.new-case-btn,
+.toggle-btn,
+.home-back-btn {
+  border-radius: 16px;
+  padding: 0.8rem 0.95rem;
+  background: rgba(241, 247, 255, 0.96);
+  color: var(--accent-strong);
   text-align: center;
+  text-decoration: none;
 }
 
 .start-btn {
-  border: 0;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #266e84, #3e8f9c);
+  border-radius: 18px;
+  padding: 0.95rem 1rem;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: #fff;
-  padding: 0.7rem 2rem;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.start-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(38, 110, 132, 0.3);
 }
 
 .start-btn:disabled {
-  opacity: 0.6;
   cursor: not-allowed;
+  opacity: 0.58;
 }
 
-/* ── 法庭审理面板 ── */
-.court-panel {
-  width: min(800px, 100%);
-  border-radius: 28px;
-  padding: 1rem;
-  display: grid;
-  gap: 0.8rem;
-  grid-template-rows: auto 1fr auto auto auto;
-}
-
-.court-stream {
+.catalog-list {
+  flex: 1;
   min-height: 0;
-  max-height: min(50vh, 480px);
-  overflow: auto;
-  padding-right: 0.2rem;
-}
-
-.message-list {
+  overflow-y: auto;
+  padding-right: 0.25rem;
   display: grid;
-  gap: 0.7rem;
+  align-content: start;
+  gap: 0.65rem;
 }
 
-.court-message {
-  display: flex;
-  gap: 0.6rem;
-  align-items: flex-start;
+.sidebar-actions {
+  display: grid;
+  gap: 12px;
 }
 
-.court-message.user {
-  flex-direction: row-reverse;
+.catalog-item {
+  border: 1px solid rgba(134, 157, 188, 0.16);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.9rem;
+  text-align: left;
+  display: grid;
+  gap: 0.35rem;
+  cursor: pointer;
 }
 
-.msg-avatar {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-  width: 2.2rem;
-  height: 2.2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.catalog-item.active {
+  border-color: rgba(78, 120, 223, 0.34);
+  background: rgba(244, 248, 255, 0.96);
+  box-shadow: 0 16px 28px rgba(30, 56, 110, 0.1);
 }
 
-.msg-content {
-  max-width: min(80%, 560px);
-  border-radius: 18px;
-  padding: 0.7rem 0.85rem;
+.catalog-item strong {
+  font-size: 0.96rem;
+  color: var(--text-primary);
 }
 
-.msg-court {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.msg-judge {
-  background: rgba(47, 127, 143, 0.12);
-  border: 1px solid rgba(47, 127, 143, 0.2);
-}
-
-.msg-label {
-  margin: 0 0 0.2rem;
-  font-size: 0.72rem;
-  font-weight: 600;
+.catalog-item span,
+.catalog-item small,
+.empty-text {
   color: var(--text-muted);
 }
 
-.msg-text {
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.case-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  height: 100%;
+}
+
+.top-nav-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.case-avatar-panel {
+  min-width: 0;
+}
+
+.case-avatar-panel:deep(.avatar-panel) {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.intro-panel,
+.options-panel {
+  border-radius: 28px;
+  padding: 1rem 1.1rem;
+}
+
+.intro-panel h1 {
+  margin: 0.25rem 0 0.5rem;
+  font-size: clamp(1.3rem, 1.6vw, 1.7rem);
+}
+
+.intro-panel p:last-child {
   margin: 0;
-  white-space: pre-wrap;
-  line-height: 1.6;
+  color: var(--text-secondary);
+  line-height: 1.7;
 }
 
-/* ── 选项按钮 ── */
-.options-section {
-  border-radius: 18px;
-  padding: 0.8rem;
-}
-
-.options-question {
-  margin: 0 0 0.5rem;
-  font-size: 0.88rem;
+.options-title {
+  margin: 0 0 0.8rem;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -624,144 +619,107 @@ function exitCase(): void {
 .options-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.6rem;
+}
+
+.case-main :deep(.input-toolbar) {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.case-main :deep(.chat-input .status-badge) {
+  min-height: 34px;
 }
 
 .option-btn {
-  border: 1px solid rgba(47, 127, 143, 0.3);
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 0.52rem 0.9rem;
-  font-size: 0.85rem;
+  border: 1px solid rgba(125, 151, 194, 0.18);
+  background: rgba(246, 249, 255, 0.96);
+  color: var(--accent-strong);
+  border-radius: 999px;
+  padding: 0.62rem 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.option-btn:hover:not(:disabled) {
-  background: rgba(47, 127, 143, 0.1);
-  border-color: var(--accent);
-  transform: translateY(-1px);
 }
 
 .option-btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
+  opacity: 0.55;
 }
 
-/* ── 自由输入 ── */
-.composer {
-  border-radius: 18px;
-  padding: 0.6rem;
-  display: flex;
-  gap: 0.6rem;
-  align-items: flex-end;
+.sidebar-mask {
+  display: none;
 }
 
-.composer-input {
-  width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 14px;
-  resize: none;
-  min-height: 48px;
-  max-height: 120px;
-  padding: 0.5rem 0.6rem;
-  background: rgba(255, 255, 255, 0.37);
-  color: var(--text-primary);
-  font: inherit;
+.mobile-only {
+  display: none;
 }
 
-.composer-input:focus {
-  outline: 2px solid rgba(31, 98, 119, 0.35);
+@media (max-width: 1380px) {
+  .case-page {
+    grid-template-columns: clamp(240px, 22vw, 300px) minmax(0, 1fr) clamp(240px, 26vw, 320px);
+  }
 }
 
-.send-btn {
-  border: 0;
-  background: linear-gradient(135deg, #266e84, #3e8f9c);
-  color: #fff;
-  border-radius: 12px;
-  padding: 0.5rem 0.8rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.send-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.send-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.exit-btn {
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.2);
-  color: var(--text-muted);
-  border-radius: 12px;
-  padding: 0.45rem 0.8rem;
-  cursor: pointer;
-  font-size: 0.82rem;
-  transition: all 0.2s ease;
-  text-align: center;
-}
-
-.exit-btn:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
-/* ── Avatar ── */
-.avatar-dock {
-  position: fixed;
-  right: 1.5rem;
-  bottom: 1.2rem;
-  width: 17rem;
-  z-index: 30;
-}
-
-/* ── 动画 ── */
-.fade-slide-enter-active,
-.fade-slide-leave-active,
-.msg-slide-enter-active,
-.msg-slide-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-slide-enter-from,
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.msg-slide-enter-from,
-.msg-slide-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-@media (max-width: 920px) {
-  .case-workspace {
-    min-height: auto;
-    padding: 0;
+@media (max-width: 1100px) {
+  .case-page {
+    grid-template-columns: clamp(230px, 24vw, 280px) minmax(0, 1fr);
   }
 
-  .case-panel,
-  .court-panel {
-    border-radius: 22px;
+  .case-avatar-panel {
+    grid-column: 1 / -1;
   }
 
-  .case-grid {
-    grid-template-columns: 1fr;
+  .case-avatar-panel:deep(.avatar-panel) {
+    height: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .case-page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
   }
 
-  .avatar-dock {
+  .left-column {
+    display: block;
+  }
+
+  .top-nav-row {
+    margin-bottom: 12px;
+  }
+
+  .case-sidebar {
     position: fixed;
-    left: 1rem;
-    right: 1rem;
-    width: auto;
-    bottom: 1rem;
-    z-index: 45;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 50;
+    width: min(84vw, 320px);
+    min-width: 0;
+    background: rgba(239, 245, 248, 0.94);
+    transform: translateX(0);
+    transition: transform 0.24s ease;
+  }
+
+  .case-sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+
+  .sidebar-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 18, 34, 0.24);
+    z-index: 40;
+  }
+
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  .case-main {
+    min-height: 0;
   }
 }
 </style>

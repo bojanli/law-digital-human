@@ -24,8 +24,8 @@ backend/.venv/Scripts/python backend/scripts/run_sprint_acceptance.py --sprint s
 ## Sprint 2（RAG 问答闭环 + 结构化 JSON + 引用卡片）
 
 1. `/api/chat` 返回结构化 answer_json（包含 conclusion/analysis/actions/citations）。
-2. 无证据时触发“拒答守卫”（serious + 空 citations）。
-3. 引用不在检索结果中时触发过滤/拒答。
+2. 本地无证据时触发“公开网络来源免责声明/兜底提示”（supportive + 空 citations）。
+3. 引用不在检索结果中时触发过滤/拒答，避免把不可核验内容伪装成本地依据。
 4. 聊天服务异常时 API 返回稳定 500 文案。
 5. 运行时配置接口可保存并立即影响聊天参数（如 Top K、citation 守卫）。
 

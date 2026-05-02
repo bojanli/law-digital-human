@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 
 from app.core.logging import log_event
-from app.schemas.knowledge import KnowledgeSearchRequest, KnowledgeSearchResponse
+from app.schemas.knowledge import KnowledgeChunk, KnowledgeSearchRequest, KnowledgeSearchResponse
 from app.services import knowledge as knowledge_service
 from app.services import metrics as metrics_service
 
@@ -59,8 +59,8 @@ def search(req: KnowledgeSearchRequest, request: Request) -> KnowledgeSearchResp
     return KnowledgeSearchResponse(results=results)
 
 
-@router.get("/chunk/{chunk_id}")
-def get_chunk(chunk_id: str, request: Request) -> dict:
+@router.get("/chunk/{chunk_id}", response_model=KnowledgeChunk)
+def get_chunk(chunk_id: str, request: Request) -> KnowledgeChunk:
     request_id = getattr(request.state, "request_id", "")
     chunk = knowledge_service.get_chunk(chunk_id)
     if not chunk:
@@ -73,7 +73,7 @@ def get_chunk(chunk_id: str, request: Request) -> dict:
             request_id=request_id,
             meta={"chunk_id": chunk_id},
         )
-        raise HTTPException(status_code=404, detail="chunk not found")
+        raise HTTPException(status_code=404, detail=f"未找到 chunk_id={chunk_id} 的引用依据")
     log_event(logger, "info", "knowledge_chunk_hit", rid=request_id, chunk_id=chunk_id)
     metrics_service.record_api_call(
         endpoint="knowledge_chunk",
@@ -83,4 +83,4 @@ def get_chunk(chunk_id: str, request: Request) -> dict:
         request_id=request_id,
         meta={"chunk_id": chunk_id},
     )
-    return chunk
+    return KnowledgeChunk(**chunk)

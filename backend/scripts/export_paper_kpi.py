@@ -41,7 +41,7 @@ def _to_markdown(payload: dict) -> str:
         f"- chat_with_evidence: {payload['chat_with_evidence']}\n"
         f"- citation_hit_rate: {payload['citation_hit_rate']:.4f}\n"
         f"- chat_no_evidence: {payload['chat_no_evidence']}\n"
-        f"- no_evidence_reject_rate: {payload['no_evidence_reject_rate']:.4f}\n"
+        f"- no_local_evidence_external_reference_rate: {payload['no_local_evidence_external_reference_rate']:.4f}\n"
         f"- chat_latency_p50_ms: {chat_latency['p50_ms']:.2f}\n"
         f"- chat_latency_p90_ms: {chat_latency['p90_ms']:.2f}\n"
         f"- chat_latency_avg_ms: {chat_latency['avg_ms']:.2f}\n"

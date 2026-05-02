@@ -1,35 +1,56 @@
 import { reactive } from "vue";
 
 export type AvatarEmotion = "calm" | "serious" | "supportive" | "warning";
-export type AvatarGesture = "idle" | "explain" | "point" | "confirm";
+export type AvatarGesture =
+  | "idle"
+  | "greeting"
+  | "explain"
+  | "point"
+  | "confirm"
+  | "thinking"
+  | "warning"
+  | "dismissing"
+  | "laughing"
+  | "Thoughtful Head Shake"
+  | "Laughing"
+  | "Dismissing";
 
-type AvatarCommand = "Avatar.Play" | "Avatar.SetEmotion" | "Avatar.SetGesture" | "Avatar.Stop";
+export type AvatarBridgeCommand = {
+  gesture?: string;
+  emotion?: string;
+  text?: string;
+  audioUrl?: string;
+};
+export type AvatarAudioOptions = {
+  rate?: number;
+  volume?: number;
+};
+
 type UnityEvent = "OnAvatarReady" | "OnPlayFinished";
 
-type UnityCommandMessage = {
-  source: "law-web";
-  target: "unity-avatar";
-  command: AvatarCommand;
-  payload: Record<string, string>;
+type UnityInstance = {
+  SendMessage?: (gameObject: string, method: string, parameter?: string) => void;
 };
 
 declare global {
   interface Window {
-    unityInstance?: {
-      SendMessage?: (gameObject: string, method: string, parameter?: string) => void;
-    };
+    unityInstance?: UnityInstance;
   }
 }
 
 const KNOWN_EMOTIONS: readonly AvatarEmotion[] = ["calm", "serious", "supportive", "warning"] as const;
 const DEFAULT_GESTURE_BY_EMOTION: Record<AvatarEmotion, AvatarGesture> = {
   calm: "explain",
-  supportive: "confirm",
-  serious: "point",
+  supportive: "explain",
+  serious: "Thoughtful Head Shake",
   warning: "point",
 };
 
 let callbacksBound = false;
+const avatarAudioOptions: Required<AvatarAudioOptions> = {
+  rate: 1,
+  volume: 1,
+};
 
 export const avatarState = reactive({
   ready: false,
@@ -40,34 +61,42 @@ export const avatarState = reactive({
   lastEvent: "" as string,
 });
 
+export function setUnityInstance(instance: UnityInstance | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.unityInstance = instance || undefined;
+  if (!instance) {
+    avatarState.ready = false;
+  }
+}
+
 export function normalizeAvatarEmotion(value: unknown, fallback: AvatarEmotion = "calm"): AvatarEmotion {
   return typeof value === "string" && KNOWN_EMOTIONS.includes(value as AvatarEmotion)
     ? (value as AvatarEmotion)
     : fallback;
 }
 
-function dispatchCommand(command: AvatarCommand, payload: Record<string, string>): void {
+export function sendAvatarCommand(command: AvatarBridgeCommand): void {
   if (typeof window === "undefined") {
     return;
   }
 
-  const message: UnityCommandMessage = {
-    source: "law-web",
-    target: "unity-avatar",
-    command,
-    payload,
-  };
+  const unityInstance = window.unityInstance;
+  if (!unityInstance?.SendMessage) {
+    avatarState.ready = false;
+    console.warn("[AvatarBridge] unityInstance not ready", command);
+    return;
+  }
+  avatarState.ready = true;
 
-  window.dispatchEvent(new CustomEvent("avatar:command", { detail: message }));
-  window.postMessage(message, "*");
-
-  const sender = window.unityInstance?.SendMessage;
-  if (typeof sender === "function") {
-    try {
-      sender("WebBridge", "OnWebCommand", JSON.stringify(message));
-    } catch {
-      // Keep fallback transport available even if Unity bridge object is absent.
-    }
+  const payload = JSON.stringify(command);
+  console.log("[AvatarBridge] SendMessage WebBridge.ReceiveMessage", payload);
+  try {
+    unityInstance.SendMessage("WebBridge", "ReceiveMessage", payload);
+    console.log("[AvatarBridge] SendMessage success");
+  } catch (err) {
+    console.error("[AvatarBridge] SendMessage failed", err);
   }
 }
 
@@ -99,7 +128,7 @@ function handleUnityEvent(eventName: UnityEvent): void {
     avatarState.ready = true;
   } else if (eventName === "OnPlayFinished") {
     avatarState.isPlaying = false;
-    setAvatarGesture("idle");
+    setAvatarPose("idle", "calm");
   }
 }
 
@@ -109,39 +138,87 @@ export function setAvatarSubtitle(text: string): void {
 
 export function setAvatarEmotion(emotion: AvatarEmotion): void {
   avatarState.emotion = emotion;
-  dispatchCommand("Avatar.SetEmotion", { emotionTag: emotion });
+  sendAvatarCommand({ emotion });
 }
 
 export function setAvatarGesture(gesture: AvatarGesture): void {
-  dispatchCommand("Avatar.SetGesture", { gestureTag: gesture });
+  sendAvatarCommand({ gesture });
+}
+
+export function setAvatarPose(gesture: string, emotion: AvatarEmotion, text = ""): void {
+  avatarState.emotion = emotion;
+  if (text.trim()) {
+    setAvatarSubtitle(text);
+  }
+  sendAvatarCommand({
+    gesture,
+    emotion,
+    text: text.trim() || undefined,
+  });
 }
 
 export function getDefaultGestureForEmotion(emotion: AvatarEmotion): AvatarGesture {
   return DEFAULT_GESTURE_BY_EMOTION[emotion];
 }
 
-export function playAvatar(audioUrl: string, subtitleText: string, emotion: AvatarEmotion = avatarState.emotion): void {
+export function playAvatar(
+  audioUrl: string,
+  subtitleText: string,
+  emotion: AvatarEmotion = avatarState.emotion,
+  gesture: string = getDefaultGestureForEmotion(emotion),
+): void {
   const trimmedUrl = audioUrl.trim();
   if (!trimmedUrl) {
     return;
   }
 
-  if (emotion !== avatarState.emotion) {
-    setAvatarEmotion(emotion);
-  }
-  setAvatarGesture(getDefaultGestureForEmotion(emotion));
-
+  avatarState.emotion = emotion;
   avatarState.isPlaying = true;
   avatarState.lastAudioUrl = trimmedUrl;
   setAvatarSubtitle(subtitleText);
-
-  dispatchCommand("Avatar.Play", {
+  console.log("[TTS] playAvatar payload =", {
+    gesture,
+    emotion,
+    text: avatarState.subtitle,
     audioUrl: trimmedUrl,
-    subtitleText: avatarState.subtitle,
   });
+
+  sendAvatarCommand({
+    gesture,
+    emotion,
+    text: avatarState.subtitle,
+    audioUrl: trimmedUrl,
+  });
+  console.log("[TTS] playback source=unity-only");
+}
+
+export function setAvatarAudioOptions(options: AvatarAudioOptions): void {
+  if (typeof options.rate === "number" && Number.isFinite(options.rate)) {
+    avatarAudioOptions.rate = Math.min(2, Math.max(0.5, options.rate));
+  }
+  if (typeof options.volume === "number" && Number.isFinite(options.volume)) {
+    avatarAudioOptions.volume = Math.min(1, Math.max(0, options.volume));
+  }
+  // Unity-side audio params are not controlled here for now.
 }
 
 export function stopAvatar(): void {
   avatarState.isPlaying = false;
-  dispatchCommand("Avatar.Stop", {});
+  sendAvatarCommand({ gesture: "idle", emotion: "calm", text: "", audioUrl: "" });
+  if (typeof window !== "undefined") {
+    const unityInstance = window.unityInstance;
+    if (unityInstance?.SendMessage) {
+      const legacyStopPayload = JSON.stringify({
+        source: "law-web",
+        target: "unity-avatar",
+        command: "Avatar.Stop",
+        payload: {},
+      });
+      try {
+        unityInstance.SendMessage("WebBridge", "OnWebCommand", legacyStopPayload);
+      } catch {
+        // no-op: ReceiveMessage channel above is still sent.
+      }
+    }
+  }
 }

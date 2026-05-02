@@ -1,10 +1,13 @@
 :root {
-  --text-primary: #191970;
-  --text-muted: #20B2AA;
-  --accent: #800000;
-  --accent-strong: #000000;
-  --glass-bg: rgba(255, 255, 255, 0.3);
-  --glass-border: rgba(255, 255, 255, 0.2);
+  --text-primary: #16324f;
+  --text-secondary: #36526d;
+  --text-muted: #6a8198;
+  --accent: #3d7ef0;
+  --accent-strong: #215ad4;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-strong: rgba(255, 255, 255, 0.92);
+  --glass-bg: rgba(255, 255, 255, 0.66);
+  --glass-border: rgba(135, 157, 186, 0.16);
 }
 
 * {
@@ -15,24 +18,23 @@ html,
 body,
 #app {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   margin: 0;
 }
 
 body {
-  font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  overflow: hidden;
+  font-family: "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--text-primary);
-  background: transparent;
+  background:
+    radial-gradient(80% 80% at 0% 0%, rgba(99, 139, 238, 0.16), transparent 60%),
+    radial-gradient(90% 70% at 100% 0%, rgba(76, 199, 189, 0.14), transparent 55%),
+    linear-gradient(180deg, #edf4ff 0%, #f6fbff 48%, #eff7f6 100%);
   line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
 }
 
 button,
@@ -41,21 +43,26 @@ textarea {
   font: inherit;
 }
 
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 .glass-panel {
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .depth-soft {
   box-shadow:
-    0 8px 22px rgba(15, 27, 44, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.28) inset;
+    0 18px 40px rgba(34, 60, 113, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.65) inset;
 }
 
 .depth-medium {
   box-shadow:
-    0 18px 44px rgba(10, 29, 49, 0.22),
-    0 1px 0 rgba(255, 255, 255, 0.32) inset;
+    0 24px 48px rgba(26, 48, 95, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.72) inset;
 }

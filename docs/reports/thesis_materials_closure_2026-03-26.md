@@ -11,7 +11,7 @@
 
 两条主线：
 
-- 主线A：法律问答（结构化 JSON 输出 + citation 校验 + 无证据拒答）；
+- 主线A：法律问答（结构化 JSON 输出 + citation 校验 + 本地无证据时公开网络来源免责声明）；
 - 主线B：剧情法庭（著名案例沉浸式审理推进 + 分支选择 + 真实判决讲解）。
 
 ## 2. 代码与接口落地证据
@@ -19,7 +19,7 @@
 已落地的关键实现（用于论文“系统实现”章节引用）：
 
 - 问答接口与守卫链路：`backend/app/api/v1/chat.py`
-- 问答服务结构化输出与拒答逻辑：`backend/app/services/chat.py`
+- 问答服务结构化输出、引用校验与外部来源免责声明逻辑：`backend/app/services/chat.py`
 - 知识检索与chunk回溯：`backend/app/services/knowledge.py`
 - 剧情法庭服务：`backend/app/services/case.py`
 - 运行时配置接口：`backend/app/api/v1/runtime_config.py`
@@ -63,7 +63,7 @@
 - chat_with_evidence: 16
 - citation_hit_rate: 1.0000
 - chat_no_evidence: 3
-- no_evidence_reject_rate: 1.0000
+- no_local_evidence_external_reference_rate: 1.0000
 - chat_latency_p50_ms: 2793.85
 - chat_latency_p90_ms: 12441.64
 - case_step_latency_p50_ms: 30.80
@@ -82,7 +82,7 @@
   - 运行时配置与可调参能力。
 - 第4章 实验与评估：
   - 固定测试集自动评测（20/20）；
-  - KPI指标（命中率、拒答率、延迟）；
+  - KPI指标（命中率、免责声明覆盖率、延迟）；
   - 典型案例演示截图与流程说明。
 - 第5章 总结与展望：
   - 已完成闭环；
@@ -93,7 +93,7 @@
 1. 启动后端与前端，展示`/settings`可实时配置（TopK、拒答、校验）。
 2. 在`/chat`演示两类样例：
    - 证据充分：返回结构化结论 + citation；
-   - 信息不足：触发拒答与追问。
+   - 本地知识库无命中：触发公开网络来源免责声明与追问。
 3. 在`/case`演示剧情法庭推进至`verdict`，再触发“查看真实判决结果”。
 4. 出示自动评测报告与KPI报告文件，证明可复现与量化结果。
 

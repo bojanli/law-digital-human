@@ -152,8 +152,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: acbd5de57f0743f47882128c3d91bfa8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  animator: {fileID: 1574596616}
+  characterAnimator: {fileID: 1574596616}
   audioSource: {fileID: 457421140}
+  verboseLogging: 1
+  enableEditorHotkeys: 1
+  enableExpressionBlendShapes: 1
+  faceRenderer: {fileID: 900926849}
+  emotionBlendShapes:
+  - Fcl_ALL_Joy
+  - Fcl_ALL_Angry
+  - Fcl_ALL_Surprised
+  - Fcl_ALL_Fun
+  useLateUpdateExpressionReapply: 1
+  enableLipSync: 1
+  lipSyncFaceRenderer: {fileID: 900926849}
+  mouthOpenBlendShapeIndex: 39
+  mouthOpenBlendShapeName: Fcl_MTH_A
+  lipSyncSilenceThreshold: 0.01
+  lipSyncMaxRms: 0.12
+  lipSyncAttackSpeed: 220
+  lipSyncReleaseSpeed: 95
+  lipSyncGamma: 1.2
+  lipSyncAnalysisSamples: 1024
+  lipSyncMinOpenWhileSpeaking: 2
+  lipSyncTalkCycleHz: 5.4
+  lipSyncTalkPulseBlend: 0.6
+  lipSyncFallbackMinOpen: 8
+  lipSyncFallbackMaxOpen: 58
+  lipSyncFallbackCycleHz: 5.8
+  lipSyncFallbackNoiseBlend: 0.35
+  autoFindMouthBlendShape: 1
 --- !u!4 &457421139
 Transform:
   m_ObjectHideFlags: 0
@@ -265,6 +293,11 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!137 &900926849 stripped
+SkinnedMeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 7140606858727328969, guid: 3135279b625bd46448edc3f7c6edb9b3, type: 3}
+  m_PrefabInstance: {fileID: 1642803962}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1167306639
 GameObject:
   m_ObjectHideFlags: 0
@@ -591,6 +624,18 @@ PrefabInstance:
     - target: {fileID: 7140606858727328969, guid: 3135279b625bd46448edc3f7c6edb9b3, type: 3}
       propertyPath: m_AABB.m_Extent.z
       value: 0.07319426
+      objectReference: {fileID: 0}
+    - target: {fileID: 7140606858727328969, guid: 3135279b625bd46448edc3f7c6edb9b3, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.size
+      value: 57
+      objectReference: {fileID: 0}
+    - target: {fileID: 7140606858727328969, guid: 3135279b625bd46448edc3f7c6edb9b3, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.data[2]
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7140606858727328969, guid: 3135279b625bd46448edc3f7c6edb9b3, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.data[39]
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

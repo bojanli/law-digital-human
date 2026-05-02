@@ -8,10 +8,16 @@ from app.core.logging import log_event
 from app.schemas.case import CaseStartRequest, CaseStepRequest, CaseResponse
 from app.services import case as case_service
 from app.services import metrics as metrics_service
+from app.services import runtime_config as runtime_config_service
 from app.services import tts as tts_service
 
 router = APIRouter(prefix="/api/case", tags=["case"])
 logger = logging.getLogger(__name__)
+
+
+def _should_generate_tts(enable_tts: bool | None) -> bool:
+    runtime = runtime_config_service.get_runtime_config()
+    return enable_tts if enable_tts is not None else runtime.enable_tts
 
 
 @router.get("/catalog")
@@ -25,18 +31,20 @@ def start_case(req: CaseStartRequest, request: Request) -> CaseResponse:
     request_id = getattr(request.state, "request_id", "")
     try:
         resp = case_service.start_case(req)
-        try:
-            audio_url = tts_service.synthesize(resp.text, emotion=resp.emotion)
-        except Exception:
-            audio_url = None
-            log_event(
-                logger,
-                "warning",
-                "case_start_tts_failed",
-                rid=request_id,
-                case_id=req.case_id,
-                session_id=resp.session_id,
-            )
+        audio_url = None
+        if _should_generate_tts(req.enable_tts):
+            try:
+                audio_url = tts_service.synthesize(resp.text, emotion=resp.emotion)
+                audio_url = tts_service.public_audio_url(audio_url)
+            except Exception:
+                log_event(
+                    logger,
+                    "warning",
+                    "case_start_tts_failed",
+                    rid=request_id,
+                    case_id=req.case_id,
+                    session_id=resp.session_id,
+                )
         response = resp.model_copy(update={"audio_url": audio_url})
         elapsed_ms = (time.perf_counter() - started) * 1000
         log_event(
@@ -98,18 +106,20 @@ def case_step(req: CaseStepRequest, request: Request) -> CaseResponse:
     request_id = getattr(request.state, "request_id", "")
     try:
         resp = case_service.step_case(req)
-        try:
-            audio_url = tts_service.synthesize(resp.text, emotion=resp.emotion)
-        except Exception:
-            audio_url = None
-            log_event(
-                logger,
-                "warning",
-                "case_step_tts_failed",
-                rid=request_id,
-                session_id=req.session_id,
-                state=resp.state,
-            )
+        audio_url = None
+        if _should_generate_tts(req.enable_tts):
+            try:
+                audio_url = tts_service.synthesize(resp.text, emotion=resp.emotion)
+                audio_url = tts_service.public_audio_url(audio_url)
+            except Exception:
+                log_event(
+                    logger,
+                    "warning",
+                    "case_step_tts_failed",
+                    rid=request_id,
+                    session_id=req.session_id,
+                    state=resp.state,
+                )
         response = resp.model_copy(update={"audio_url": audio_url})
         elapsed_ms = (time.perf_counter() - started) * 1000
         log_event(

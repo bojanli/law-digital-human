@@ -32,6 +32,6 @@ class PaperKpiResponse(BaseModel):
     chat_with_evidence: int
     citation_hit_rate: float
     chat_no_evidence: int
-    no_evidence_reject_rate: float
+    no_local_evidence_external_reference_rate: float
     chat_latency: PaperKpiLatency
     case_step_latency: PaperKpiLatency

@@ -18,16 +18,22 @@ def _config_path() -> Path:
 def _default_config() -> RuntimeConfig:
     return RuntimeConfig(
         chat_top_k=settings.chat_top_k,
-        hybrid_retrieval=True,
+        hybrid_retrieval=False,
         enable_rerank=True,
-        reject_without_evidence=True,
+        reject_without_evidence=False,
         strict_citation_check=True,
+        enable_tts=settings.tts_enabled,
+        enable_unity_avatar=True,
         default_emotion="calm",
         knowledge_collection=settings.qdrant_collection,
         case_collection="cases",
         chat_case_top_k=3,
         embedding_provider=settings.embedding_provider if settings.embedding_provider in {"mock", "ark", "doubao"} else "mock",
         timeout_sec=30,
+        llm_provider=settings.llm_provider,
+        model_name=settings.resolved_llm_model(),
+        temperature=0.2,
+        max_tokens=260,
     )
 
 

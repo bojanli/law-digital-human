@@ -115,7 +115,9 @@
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
               }).then((unityInstance) => {
+                window.unityInstance = unityInstance;
                 loadingBar.style.display = "none";
+                console.log("[UnityHost] unityInstance ready");
                 fullscreenButton.onclick = () => {
                   unityInstance.SetFullscreen(1);
                 };
@@ -125,6 +127,30 @@
             };
 
       document.body.appendChild(script);
+
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || data.type !== "unity-sendmessage") {
+          return;
+        }
+
+        const instance = window.unityInstance;
+        if (!instance || typeof instance.SendMessage !== "function") {
+          console.warn("[UnityHost] unityInstance not ready for forwarded message", data);
+          return;
+        }
+
+        try {
+          console.log(
+            "[UnityHost] Forward SendMessage",
+            data.gameObject + "." + data.method,
+            data.parameter || ""
+          );
+          instance.SendMessage(data.gameObject, data.method, data.parameter || "");
+        } catch (error) {
+          console.error("[UnityHost] Forward SendMessage failed", error);
+        }
+      });
 
     </script>
   </body>

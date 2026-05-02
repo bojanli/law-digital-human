@@ -1,15 +1,25 @@
 <template>
   <div class="settings-workspace">
     <section class="settings-panel glass-panel depth-medium">
+      <section class="top-nav-row">
+        <RouterLink to="/" class="home-back-btn">返回主界面</RouterLink>
+      </section>
+
       <header class="settings-header">
         <div>
           <p class="eyebrow">System Tuning Console</p>
           <h1 class="title">系统设置</h1>
+          <p class="hint">设置会保存到本机 localStorage，并随 /api/chat、/api/case 请求发送。</p>
         </div>
-        <button type="button" class="save-btn" :disabled="loading || saving" @click="saveSettings">
-          {{ saving ? "保存中..." : loading ? "加载中..." : "保存参数" }}
-        </button>
+        <div class="header-actions">
+          <button type="button" class="ghost-btn" :disabled="loading || saving" @click="restoreDefaults">恢复默认</button>
+          <button type="button" class="save-btn" :disabled="loading || saving" @click="saveSettings">
+            {{ saving ? "保存中..." : loading ? "加载中..." : "保存并应用" }}
+          </button>
+        </div>
       </header>
+
+      <div v-if="statusText" class="status-line">{{ statusText }}</div>
 
       <div class="settings-grid">
         <article class="glass-panel depth-soft block">
@@ -18,19 +28,22 @@
           <label class="field">
             <span>Top K</span>
             <div class="range-wrap">
-              <input v-model.number="topK" type="range" min="1" max="12" />
-              <strong>{{ topK }}</strong>
+              <input v-model.number="form.chat_top_k" type="range" min="1" max="12" />
+              <strong>{{ form.chat_top_k }}</strong>
             </div>
           </label>
 
-          <label class="switch-row">
-            <span>混合检索（向量 + 关键词）</span>
-            <input v-model="hybridRetrieval" type="checkbox" />
+          <label class="switch-row disabled">
+            <span>
+              混合检索（向量 + 关键词）
+              <small>后端当前未启用，固定关闭</small>
+            </span>
+            <input v-model="form.hybrid_retrieval" type="checkbox" disabled />
           </label>
 
           <label class="switch-row">
             <span>重排序（Rerank）</span>
-            <input v-model="enableRerank" type="checkbox" />
+            <input v-model="form.enable_rerank" type="checkbox" />
           </label>
         </article>
 
@@ -38,24 +51,72 @@
           <h2>回答守卫</h2>
 
           <label class="switch-row">
-            <span>启用“无依据拒答”</span>
-            <input v-model="rejectWithoutEvidence" type="checkbox" />
+            <span>无本地依据时使用外部来源声明</span>
+            <input v-model="form.reject_without_evidence" type="checkbox" />
           </label>
 
           <label class="switch-row">
             <span>强制 citation 校验</span>
-            <input v-model="strictCitationCheck" type="checkbox" />
+            <input v-model="form.strict_citation_check" type="checkbox" />
+          </label>
+
+          <label class="switch-row disabled">
+            <span>
+              领域外过滤
+              <small>安全守卫固定开启，股票预测等问题不会挂弱相关 citation</small>
+            </span>
+            <input type="checkbox" checked disabled />
           </label>
 
           <label class="field">
             <span>默认情绪标签</span>
-            <select v-model="defaultEmotion" class="field-select">
+            <select v-model="form.default_emotion" class="field-select">
               <option value="calm">calm</option>
               <option value="supportive">supportive</option>
               <option value="serious">serious</option>
               <option value="warning">warning</option>
             </select>
           </label>
+        </article>
+
+        <article class="glass-panel depth-soft block">
+          <h2>播报与数字人</h2>
+
+          <label class="switch-row">
+            <span>启用 TTS</span>
+            <input v-model="form.enable_tts" type="checkbox" />
+          </label>
+
+          <label class="switch-row">
+            <span>启用 Unity 数字人播报</span>
+            <input v-model="form.enable_unity_avatar" type="checkbox" />
+          </label>
+
+          <p class="hint compact">关闭 TTS 后后端返回 audio_url=null；关闭 Unity 后前端不调用 SendMessage 播报。</p>
+        </article>
+
+        <article class="glass-panel depth-soft block">
+          <h2>模型参数</h2>
+
+          <label class="field">
+            <span>Temperature</span>
+            <div class="range-wrap">
+              <input v-model.number="form.temperature" type="range" min="0" max="1" step="0.05" />
+              <strong>{{ form.temperature.toFixed(2) }}</strong>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>Max Tokens</span>
+            <input v-model.number="form.max_tokens" type="number" min="128" max="4096" class="field-input" />
+          </label>
+
+          <div class="read-only-grid">
+            <span>Provider</span>
+            <strong>{{ form.llm_provider || "mock" }}</strong>
+            <span>Model</span>
+            <strong>{{ form.model_name || "当前环境未配置" }}</strong>
+          </div>
         </article>
 
         <article class="glass-panel depth-soft block full">
@@ -70,12 +131,12 @@
             <div v-if="showAdvanced" class="advanced-body">
               <label class="field">
                 <span>知识库集合</span>
-                <input v-model="knowledgeCollection" type="text" class="field-input" />
+                <input v-model="form.knowledge_collection" type="text" class="field-input" />
               </label>
 
               <label class="field">
                 <span>Embedding Provider</span>
-                <select v-model="embeddingProvider" class="field-select">
+                <select v-model="form.embedding_provider" class="field-select">
                   <option value="mock">mock</option>
                   <option value="ark">ark</option>
                   <option value="doubao">doubao</option>
@@ -85,8 +146,8 @@
               <label class="field">
                 <span>请求超时（秒）</span>
                 <div class="range-wrap">
-                  <input v-model.number="timeoutSec" type="range" min="5" max="90" />
-                  <strong>{{ timeoutSec }}s</strong>
+                  <input v-model.number="form.timeout_sec" type="range" min="5" max="90" />
+                  <strong>{{ form.timeout_sec }}s</strong>
                 </div>
               </label>
             </div>
@@ -98,89 +159,71 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
+import {
+  DEFAULT_APP_SETTINGS,
+  type AppSettings,
+  loadLocalSettings,
+  normalizeSettings,
+  resetLocalSettings,
+  saveLocalSettings,
+} from "../services/appSettings";
 
-type RuntimeConfig = {
-  chat_top_k: number;
-  hybrid_retrieval: boolean;
-  enable_rerank: boolean;
-  reject_without_evidence: boolean;
-  strict_citation_check: boolean;
-  default_emotion: "calm" | "supportive" | "serious" | "warning";
-  knowledge_collection: string;
-  embedding_provider: "mock" | "ark" | "doubao";
-  timeout_sec: number;
-};
-
-const topK = ref(5);
-const hybridRetrieval = ref(false);
-const enableRerank = ref(true);
-
-const rejectWithoutEvidence = ref(true);
-const strictCitationCheck = ref(true);
-const defaultEmotion = ref("calm");
-
+const form = reactive<AppSettings>({ ...DEFAULT_APP_SETTINGS });
 const showAdvanced = ref(false);
-const knowledgeCollection = ref("laws");
-const embeddingProvider = ref("mock");
-const timeoutSec = ref(30);
 const loading = ref(false);
 const saving = ref(false);
+const statusText = ref("");
 
-function applyConfig(config: RuntimeConfig): void {
-  topK.value = config.chat_top_k;
-  hybridRetrieval.value = config.hybrid_retrieval;
-  enableRerank.value = config.enable_rerank;
-  rejectWithoutEvidence.value = config.reject_without_evidence;
-  strictCitationCheck.value = config.strict_citation_check;
-  defaultEmotion.value = config.default_emotion;
-  knowledgeCollection.value = config.knowledge_collection;
-  embeddingProvider.value = config.embedding_provider;
-  timeoutSec.value = config.timeout_sec;
+function applyConfig(config: Partial<AppSettings>): void {
+  Object.assign(form, normalizeSettings(config));
+  form.hybrid_retrieval = false;
 }
 
-function buildPayload(): RuntimeConfig {
-  return {
-    chat_top_k: topK.value,
-    hybrid_retrieval: hybridRetrieval.value,
-    enable_rerank: enableRerank.value,
-    reject_without_evidence: rejectWithoutEvidence.value,
-    strict_citation_check: strictCitationCheck.value,
-    default_emotion: defaultEmotion.value as RuntimeConfig["default_emotion"],
-    knowledge_collection: knowledgeCollection.value.trim() || "laws",
-    embedding_provider: embeddingProvider.value as RuntimeConfig["embedding_provider"],
-    timeout_sec: timeoutSec.value,
-  };
+function buildPayload(): AppSettings {
+  return normalizeSettings({ ...form, hybrid_retrieval: false });
 }
 
 async function loadSettings(): Promise<void> {
   loading.value = true;
   try {
-    const res = await axios.get<RuntimeConfig>("/api/admin/runtime-config");
-    applyConfig(res.data);
+    const [effective] = await Promise.allSettled([axios.get<AppSettings>("/api/settings/effective")]);
+    const backend = effective.status === "fulfilled" ? effective.value.data : {};
+    applyConfig({ ...backend, ...loadLocalSettings() });
+    statusText.value = "已加载本地设置；后端有效配置用于补齐模型和默认值。";
   } catch {
-    ElMessage.error("读取运行时配置失败");
+    applyConfig(loadLocalSettings());
+    ElMessage.warning("后端配置读取失败，已使用本地设置");
   } finally {
     loading.value = false;
   }
 }
 
 async function saveSettings(): Promise<void> {
-  if (saving.value) {
-    return;
-  }
+  if (saving.value) return;
   saving.value = true;
+  const payload = buildPayload();
   try {
-    const res = await axios.put<RuntimeConfig>("/api/admin/runtime-config", buildPayload());
-    applyConfig(res.data);
-    ElMessage.success("运行时配置已保存并生效");
+    saveLocalSettings(payload);
+    const res = await axios.put<AppSettings>("/api/admin/runtime-config", payload);
+    applyConfig({ ...res.data, ...payload });
+    statusText.value = "已应用：设置已保存到本机，并写入后端运行时配置。";
+    ElMessage.success("设置已应用");
   } catch {
-    ElMessage.error("保存配置失败");
+    saveLocalSettings(payload);
+    applyConfig(payload);
+    statusText.value = "已应用到本机；后端配置保存失败，本次请求仍会携带这些设置。";
+    ElMessage.warning("后端保存失败，已保存在本机");
   } finally {
     saving.value = false;
   }
+}
+
+async function restoreDefaults(): Promise<void> {
+  applyConfig(resetLocalSettings());
+  await saveSettings();
 }
 
 onMounted(() => {
@@ -201,6 +244,20 @@ onMounted(() => {
   padding: 1rem;
 }
 
+.top-nav-row {
+  margin-bottom: 0.75rem;
+}
+
+.home-back-btn {
+  display: inline-flex;
+  text-decoration: none;
+  border-radius: 16px;
+  padding: 0.72rem 0.95rem;
+  background: rgba(241, 247, 255, 0.96);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
 .settings-header {
   display: flex;
   align-items: flex-start;
@@ -209,9 +266,23 @@ onMounted(() => {
   margin-bottom: 0.9rem;
 }
 
+.header-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.eyebrow,
+.hint,
+.status-line,
+.read-only-grid span,
+.switch-row small {
+  color: var(--text-muted);
+}
+
 .eyebrow {
   margin: 0;
-  color: var(--text-muted);
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -223,16 +294,43 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.save-btn {
+.hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+}
+
+.hint.compact {
+  line-height: 1.6;
+}
+
+.status-line {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.46);
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.save-btn,
+.ghost-btn {
   border: 0;
   border-radius: 12px;
-  background: linear-gradient(135deg, #266e84, #3e8f9c);
-  color: #fff;
   padding: 0.52rem 0.86rem;
   cursor: pointer;
 }
 
-.save-btn:disabled {
+.save-btn {
+  background: linear-gradient(135deg, #266e84, #3e8f9c);
+  color: #fff;
+}
+
+.ghost-btn {
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--accent-strong);
+}
+
+.save-btn:disabled,
+.ghost-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
@@ -274,9 +372,19 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.8rem;
   border-radius: 12px;
   padding: 0.48rem 0.56rem;
   background: rgba(255, 255, 255, 0.34);
+}
+
+.switch-row span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.switch-row.disabled {
+  opacity: 0.72;
 }
 
 .switch-row input {
@@ -308,6 +416,22 @@ onMounted(() => {
   color: #1f6277;
 }
 
+.read-only-grid {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.34);
+  padding: 0.62rem;
+}
+
+.read-only-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
 .advanced-header {
   display: flex;
   justify-content: space-between;
@@ -317,15 +441,6 @@ onMounted(() => {
 
 .advanced-header h2 {
   margin: 0;
-}
-
-.ghost-btn {
-  border: 0;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.46);
-  color: var(--accent-strong);
-  padding: 0.34rem 0.62rem;
-  cursor: pointer;
 }
 
 .advanced-body {
@@ -356,12 +471,18 @@ onMounted(() => {
     border-radius: 22px;
   }
 
-  .settings-grid {
+  .settings-header {
+    display: grid;
+  }
+
+  .header-actions,
+  .settings-grid,
+  .advanced-body {
     grid-template-columns: 1fr;
   }
 
-  .advanced-body {
-    grid-template-columns: 1fr;
+  .header-actions {
+    justify-content: stretch;
   }
 }
 </style>

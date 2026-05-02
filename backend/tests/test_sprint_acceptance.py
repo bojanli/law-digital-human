@@ -145,18 +145,22 @@ def test_s2_chat_returns_structured_payload(client, monkeypatch):
 
 
 @pytest.mark.sprint2
-def test_s2_guard_rejects_when_no_evidence():
+def test_s2_no_local_evidence_returns_external_disclaimer():
     from app.services import chat as chat_service
 
     req = {"session_id": "s2_2", "text": "随机问题", "mode": "chat", "case_state": None}
     with patch(
         "app.services.chat.get_runtime_config",
         return_value=RuntimeConfig(reject_without_evidence=True, strict_citation_check=True),
+    ), patch(
+        "app.services.chat.web_search_service.search_public_web",
+        return_value=[],
     ):
         result = chat_service.build_answer(chat_service.ChatRequest(**req), evidence=[])
-    assert result.emotion == "serious"
+    assert result.emotion == "supportive"
     assert result.citations == []
-    assert "无法给出确定结论" in result.conclusion
+    assert "本地知识库没有直接命中" in result.conclusion
+    assert "不构成正式法律意见" in result.conclusion
 
 
 @pytest.mark.sprint2

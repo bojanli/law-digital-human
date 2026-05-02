@@ -70,7 +70,12 @@ class ApiAdminMetricsTests(unittest.TestCase):
             200,
             10.0,
             request_id="r1",
-            meta={"evidence": 2, "citations": 1, "answer_emotion": "calm", "no_evidence_reject": False},
+            meta={
+                "evidence": 2,
+                "citations": 1,
+                "answer_emotion": "calm",
+                "no_local_evidence_external_reference": False,
+            },
         )
         metrics_service.record_api_call(
             "chat",
@@ -78,7 +83,12 @@ class ApiAdminMetricsTests(unittest.TestCase):
             200,
             20.0,
             request_id="r2",
-            meta={"evidence": 0, "citations": 0, "answer_emotion": "serious", "no_evidence_reject": True},
+            meta={
+                "evidence": 0,
+                "citations": 0,
+                "answer_emotion": "supportive",
+                "no_local_evidence_external_reference": True,
+            },
         )
         metrics_service.record_api_call("case_step", True, 200, 30.0, request_id="r3", meta={"state": "option_select"})
 
@@ -89,7 +99,7 @@ class ApiAdminMetricsTests(unittest.TestCase):
         self.assertEqual(payload["chat_with_evidence"], 1)
         self.assertEqual(payload["chat_no_evidence"], 1)
         self.assertAlmostEqual(payload["citation_hit_rate"], 1.0)
-        self.assertAlmostEqual(payload["no_evidence_reject_rate"], 1.0)
+        self.assertAlmostEqual(payload["no_local_evidence_external_reference_rate"], 1.0)
         self.assertEqual(payload["chat_latency"]["sample_size"], 2)
         self.assertEqual(payload["case_step_latency"]["sample_size"], 1)
 

@@ -3,17 +3,24 @@ __pycache__/
 *.pyc
 .env
 .venv/
+.venv*/
+venv/
 .pytest_cache/
 backend/pytest-cache-files-*/
 backend/tests/.tmp/
 backend/tests/reports/
-backend/tests/retrieval_eval_results.csv
+!backend/tests/reports/final_thesis_eval_report.md
+!backend/tests/reports/final_thesis_eval_report.json
+backend/uvicorn.err.log
+backend/uvicorn.out.log
 
 # Node / Vue
 node_modules/
+frontend/node_modules/
 dist/
+frontend/dist/
 
-# Unity
+# Unity Temporary/Build files
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -21,16 +28,15 @@ dist/
 [Bb]uilds/
 Logs/
 UserSettings/
+unity/.vs/
+*.csproj
+*.sln
+*.userprefs
 
-
-# Unity
-[Ll]ibrary/
-[Tt]emp/
-[Oo]bj/
-[Bb]uild/
-[Bb]uilds/
-Logs/
-UserSettings/
+# Ensure Unity WebGL build is NOT ignored
+!frontend/public/unity/index.html
+!frontend/public/unity/Build/
+!frontend/public/unity/TemplateData/
 
 # OS
 .DS_Store
@@ -42,8 +48,32 @@ Thumbs.db
 
 # Project Specific
 data/
-backend/.venv*/
-frontend/node_modules/
-backend/__pycache__/
-*.backup*
+*.db
+*.db-wal
+*.db-shm
+!backend/data/.gitkeep
+!data/.gitkeep
+dev_doc_temp.txt
 progress_report*
+*.docx
+*.vbs
+start.bat
+stop_silent.bat
+start_backend.bat
+start_silent.vbs
+tools/
+
+# Logs
+*.log
+logs/
+backend/uvicorn.out.log
+backend/uvicorn.err.log
+
+# Test & Metrics Data
+backend/tests/metrics_export.csv
+backend/tests/retrieval_eval_results.csv
+backend/tests/retrieval_queries.txt
+
+# Sensitive info
+.env*
+!.env.example

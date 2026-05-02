@@ -185,7 +185,7 @@ def get_paper_kpis(days: int | None = None) -> dict[str, Any]:
     with_evidence = [r for r in chat_rows if _meta_int(r, "evidence") > 0]
     citation_hits = [r for r in with_evidence if _meta_int(r, "citations") > 0]
     no_evidence_rows = [r for r in chat_rows if _meta_int(r, "evidence") == 0]
-    no_evidence_rejects = [r for r in no_evidence_rows if _is_no_evidence_reject(r)]
+    no_evidence_external_references = [r for r in no_evidence_rows if _is_no_local_evidence_external_reference(r)]
 
     return {
         "days": int(days) if days else None,
@@ -193,7 +193,10 @@ def get_paper_kpis(days: int | None = None) -> dict[str, Any]:
         "chat_with_evidence": len(with_evidence),
         "citation_hit_rate": _ratio(len(citation_hits), len(with_evidence)),
         "chat_no_evidence": len(no_evidence_rows),
-        "no_evidence_reject_rate": _ratio(len(no_evidence_rejects), len(no_evidence_rows)),
+        "no_local_evidence_external_reference_rate": _ratio(
+            len(no_evidence_external_references),
+            len(no_evidence_rows),
+        ),
         "chat_latency": _latency_stats(chat_rows),
         "case_step_latency": _latency_stats(case_step_rows),
     }
@@ -237,11 +240,11 @@ def _meta_int(row: dict[str, Any], key: str) -> int:
         return 0
 
 
-def _is_no_evidence_reject(row: dict[str, Any]) -> bool:
+def _is_no_local_evidence_external_reference(row: dict[str, Any]) -> bool:
     meta = row.get("meta") or {}
     if not isinstance(meta, dict):
         return False
-    explicit = meta.get("no_evidence_reject")
+    explicit = meta.get("no_local_evidence_external_reference")
     if isinstance(explicit, bool):
         return explicit
-    return _meta_int(row, "citations") == 0 and str(meta.get("answer_emotion") or "").strip().lower() == "serious"
+    return _meta_int(row, "citations") == 0 and str(meta.get("answer_emotion") or "").strip().lower() == "supportive"
