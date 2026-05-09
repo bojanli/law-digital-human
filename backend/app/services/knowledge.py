@@ -123,7 +123,8 @@ def search(query: str, top_k: int = 5, use_rerank: bool | None = None) -> list[d
         ensure_collection()
         vector = embed_text(query)
         client = _get_qdrant()
-        law_results = _search_points(client, vector, top_k, runtime.knowledge_collection)
+        law_fetch_k = max(int(top_k), min(24, int(top_k) * 3))
+        law_results = _search_points(client, vector, law_fetch_k, runtime.knowledge_collection)
 
         case_results = []
         if case_top_k > 0:
@@ -151,6 +152,12 @@ def search(query: str, top_k: int = 5, use_rerank: bool | None = None) -> list[d
         _ensure_case_chunks_table(conn)
         conn.row_factory = sqlite3.Row
 
+        lexical_law_rows = _search_law_rows_by_terms(conn, query, max(int(top_k) * 3, 12))
+        lexical_law_ids = [str(row["chunk_id"]) for row in lexical_law_rows]
+        for idx, chunk_id in enumerate(lexical_law_ids):
+            law_score_map.setdefault(chunk_id, max(0.0, 0.78 - idx * 0.01))
+        law_ids = list(dict.fromkeys([*law_ids, *lexical_law_ids]))
+
         if law_ids:
             law_cursor = conn.execute(
                 f"SELECT * FROM chunks WHERE chunk_id IN ({','.join('?' for _ in law_ids)})",
@@ -171,6 +178,7 @@ def search(query: str, top_k: int = 5, use_rerank: bool | None = None) -> list[d
     if enable_rerank:
         law_items = _rerank_by_keyword(query, law_items)
         case_items = _rerank_by_keyword(query, case_items)
+    law_items = law_items[: max(1, int(top_k))]
     case_items = _dedupe_case_items(case_items, case_top_k)
 
     # 先法条、后案例，符合“先给依据再举例”的回答顺序。
@@ -288,8 +296,85 @@ def _extract_query_terms(query: str) -> list[str]:
         terms.append(t)
     for t in re.findall(r"[\u4e00-\u9fff]{2,}", query):
         terms.append(t)
+    terms.extend(_legal_retrieval_terms(query))
     # keep order, remove duplicates
     return list(dict.fromkeys(terms))
+
+
+def _legal_retrieval_terms(query: str) -> list[str]:
+    normalized = (query or "").lower()
+    terms: list[str] = []
+    topic_terms: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+        (
+            ("押金", "房东", "租房", "租客", "退租", "出租人", "承租人"),
+            ("租赁合同", "租赁", "出租人", "承租人", "租金", "合同"),
+        ),
+        (
+            ("工资", "加班", "兼职", "劳动", "老板", "用人单位", "劳动仲裁"),
+            ("劳动争议", "劳动报酬", "工资", "用人单位", "劳动者", "劳动合同", "工作时间"),
+        ),
+        (
+            ("网购", "退款", "退货", "假货", "消费者", "商家", "平台"),
+            ("消费者", "经营者", "退货", "商品", "质量要求", "欺诈"),
+        ),
+        (
+            ("物业", "物业费", "停水", "停电", "业主"),
+            ("物业服务合同", "物业服务", "物业费", "业主"),
+        ),
+        (
+            ("培训", "退费", "格式条款", "合同里写"),
+            ("合同", "格式条款", "民事法律行为", "消费者", "经营者"),
+        ),
+        (
+            ("被骗", "诈骗", "拉黑", "转账", "起诉", "欠钱", "借款"),
+            ("诈骗", "财物", "民事诉讼", "债权", "合同", "侵权"),
+        ),
+        (
+            ("打人", "被打", "伤害", "报警"),
+            ("故意伤害", "治安管理处罚", "人身权利", "侵权责任"),
+        ),
+    )
+    for triggers, additions in topic_terms:
+        if any(trigger.lower() in normalized for trigger in triggers):
+            terms.extend(additions)
+    return terms
+
+
+def _search_law_rows_by_terms(conn: sqlite3.Connection, query: str, limit: int) -> list[sqlite3.Row]:
+    terms = [term for term in _extract_query_terms(query) if len(term) >= 2]
+    terms = [term for term in terms if len(term) <= 12]
+    if not terms:
+        return []
+
+    seen_terms = list(dict.fromkeys(terms))[:10]
+    clauses: list[str] = []
+    params: list[str] = []
+    for term in seen_terms:
+        like = f"%{term}%"
+        clauses.append("(text LIKE ? OR law_name LIKE ? OR section LIKE ? OR article_no LIKE ? OR tags LIKE ?)")
+        params.extend([like, like, like, like, like])
+
+    rows = conn.execute(
+        f"SELECT * FROM chunks WHERE {' OR '.join(clauses)} LIMIT ?",
+        [*params, max(limit * 4, limit)],
+    ).fetchall()
+    if not rows:
+        return []
+
+    ranked: list[tuple[float, int, sqlite3.Row]] = []
+    for idx, row in enumerate(rows):
+        haystack = " ".join(
+            str(row[key] or "")
+            for key in ("law_name", "article_no", "section", "tags", "text")
+            if key in row.keys()
+        ).lower()
+        score = 0.0
+        for term in seen_terms:
+            if term.lower() in haystack:
+                score += 1.0
+        ranked.append((score, idx, row))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [row for score, _idx, row in ranked if score > 0][:limit]
 
 
 def _rerank_by_keyword(query: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:

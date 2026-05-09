@@ -20,6 +20,16 @@ _TTS_JOB_LOCK = Lock()
 _TTS_JOBS: dict[str, object] = {}
 
 
+def _get_opener():
+    # Prefer explicit proxy from settings; otherwise follow system proxy; optionally force direct.
+    if settings.force_no_proxy:
+        return _NO_PROXY_OPENER
+    proxy = (settings.outbound_proxy or "").strip()
+    if proxy:
+        return request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}))
+    return request.build_opener()
+
+
 def synthesize(text: str, emotion: str = "calm") -> str | None:
     content = (text or "").strip()
     if not content or not settings.tts_enabled:
@@ -191,7 +201,7 @@ def _ark_audio_data_url(text: str, emotion: str) -> str | None:
     )
 
     try:
-        with _NO_PROXY_OPENER.open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
+        with _get_opener().open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read()
             content_type = resp.headers.get("Content-Type", "")
     except (error.HTTPError, error.URLError, TimeoutError, OSError):
@@ -252,7 +262,7 @@ def _openspeech_tts_http_data_url(text: str) -> str | None:
         method="POST",
     )
     try:
-        with _NO_PROXY_OPENER.open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
+        with _get_opener().open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
             body = resp.read()
             content_type = (resp.headers.get("Content-Type", "") or "").lower()
     except (error.HTTPError, error.URLError, TimeoutError, OSError):

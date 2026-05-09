@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     asr_audio_store_dir: str = Field(default="data/asr_uploads", alias="ASR_AUDIO_STORE_DIR")
     asr_auc_poll_interval_ms: int = Field(default=800, alias="ASR_AUC_POLL_INTERVAL_MS")
     asr_auc_timeout_sec: int = Field(default=40, alias="ASR_AUC_TIMEOUT_SEC")
+    force_no_proxy: bool = Field(default=False, alias="FORCE_NO_PROXY")
+    outbound_proxy: str = Field(default="", alias="OUTBOUND_PROXY")
 
     def cors_origin_list(self) -> list[str]:
         # 支持用逗号分隔多个 origin

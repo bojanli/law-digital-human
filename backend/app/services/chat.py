@@ -40,6 +40,7 @@ _QUERY_SELF_CONTAINED_KEYWORDS = (
 )
 _ANSWER_EVIDENCE_LIMIT = 3
 _ANSWER_HISTORY_LIMIT = 4
+_RETRIEVAL_QUERY_MAX_LEN = 220
 _STREAM_CITATION_SENTINEL = "[[CITATIONS:"
 _OUT_OF_SCOPE_FOLLOW_UP = "请描述具体法律问题。"
 
@@ -124,6 +125,45 @@ _NO_BASIS_MARKERS = (
     "未检索到",
     "没有直接命中",
 )
+_INSUFFICIENT_QUERY_HINTS = (
+    "有纠纷",
+    "怎么维权",
+    "想维权",
+    "怎么办",
+    "怎么处理",
+    "怎么解决",
+    "有争议",
+    "有问题",
+)
+_INSUFFICIENT_DETAIL_HINTS = (
+    "合同",
+    "金额",
+    "时间",
+    "地点",
+    "证据",
+    "聊天记录",
+    "转账",
+    "截图",
+    "录音",
+    "对方",
+    "交接",
+    "凭证",
+    "流水",
+    "扣钱",
+    "扣押",
+    "拉黑",
+    "起诉",
+    "房东",
+    "公司",
+    "商家",
+)
+_GENERIC_CONCLUSION_MARKERS = (
+    "可以通过和解、调解、仲裁、诉讼",
+    "可以通过和解调解仲裁诉讼",
+    "建议先协商",
+    "可向法院起诉",
+    "可以依法维权",
+)
 _LEGAL_TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "labor": ("工资", "兼职", "劳动", "加班", "用人单位", "劳动合同", "拖欠", "辞退", "社保", "工伤", "劳动报酬"),
     "rent": (
@@ -164,6 +204,14 @@ _LEGAL_TOPIC_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("租房",), ("房屋租赁", "租赁合同", "出租人", "承租人")),
     (("押金",), ("保证金", "担保", "租赁押金", "押金返还")),
     (("不退", "没退", "到期不退"), ("返还争议", "扣押", "扣留", "拒绝返还")),
+    (("老板",), ("用人单位", "劳动者", "劳动合同", "劳动报酬")),
+    (("工资",), ("劳动报酬", "用人单位", "劳动争议")),
+    (("加班",), ("延长工作时间", "加班费", "劳动报酬")),
+    (("网购",), ("消费者", "经营者", "商品", "退货")),
+    (("退款", "退费"), ("退货", "解除合同", "消费者权益")),
+    (("假货",), ("欺诈", "商品质量", "消费者权益")),
+    (("物业",), ("物业服务合同", "物业服务", "业主", "物业费")),
+    (("被骗", "拉黑"), ("诈骗", "财物", "转账记录", "民事诉讼")),
 )
 
 
@@ -171,6 +219,9 @@ def build_answer(req: ChatRequest, evidence: list[dict[str, Any]], history: list
     runtime = get_runtime_config()
     if _is_out_of_scope_request(req.text):
         return _out_of_scope_answer(req)
+    if _is_insufficient_fact_query(req.text):
+        # 信息不足场景优先追问，避免给出看似确定但不可核验的结论。
+        return _legal_domain_no_citation_answer(req)
 
     if not evidence:
         return _answer_without_local_evidence(req)
@@ -204,9 +255,121 @@ def expand_legal_query(query: str) -> str:
                 "房东不退押金 租房押金 扣押押金 拒绝返还 民法典",
             ]
         )
+    if "labor" in tags:
+        expansions.extend(
+            [
+                "劳动争议 劳动报酬 工资 用人单位 劳动者 劳动合同",
+                "拖欠工资 加班费 劳动仲裁 工作时间 民法典 劳动法",
+            ]
+        )
+    if "consumer" in tags:
+        expansions.extend(
+            [
+                "消费者 经营者 商品质量 退货 退款 欺诈",
+                "网购假货 商家拒绝退款 消费者权益保护法",
+            ]
+        )
+    if "criminal" in tags:
+        expansions.extend(
+            [
+                "诈骗 财物 转账记录 报警 起诉 故意伤害 治安管理处罚",
+            ]
+        )
+    if any(keyword in text for keyword in ("物业", "物业费", "停水", "停电")):
+        expansions.extend(["物业服务合同 物业服务 业主 物业费", "物业停水停电 催缴物业费 合法性"])
+    if any(keyword in text for keyword in ("培训", "退费", "格式条款")):
+        expansions.extend(["合同 格式条款 退费 消费者 经营者", "培训机构拒绝退费 合同效力"])
+    if any(keyword in text for keyword in ("被骗", "拉黑", "转账记录", "二手交易")):
+        expansions.extend(["诈骗 财物 转账记录 民事诉讼 起诉", "二手交易被骗 对方拉黑 维权"])
 
     expanded = " ".join(dict.fromkeys(part.strip() for part in expansions if part.strip()))
     return expanded
+
+
+def build_retrieval_query(
+    history: list[dict[str, str]] | None,
+    current_query: str,
+    model_variant: str = "fast",
+) -> str:
+    """Build a retrieval-only query. It must not contain a legal conclusion."""
+    text = (current_query or "").strip()
+    if not text:
+        return current_query
+
+    rewritten = rewrite_query(history or [], text) if history else text
+    rule_expanded = expand_legal_query(rewritten)
+    llm_expanded = _expand_query_with_llm_for_retrieval(rewritten, rule_expanded, model_variant)
+    if llm_expanded:
+        return llm_expanded
+    return rule_expanded[:_RETRIEVAL_QUERY_MAX_LEN]
+
+
+def _expand_query_with_llm_for_retrieval(original_query: str, rule_expanded_query: str, model_variant: str) -> str | None:
+    original = (original_query or "").strip()
+    if not _should_use_llm_retrieval_expansion(original):
+        return None
+
+    provider = settings.llm_provider.strip().lower()
+    if provider not in {"doubao", "ark"} or not settings.resolved_llm_api_key():
+        return None
+
+    prompt = (
+        "你是法律知识库检索 query 改写器。任务是把用户口语化或短问题扩写成检索语句，"
+        "用于检索本地法律条文。\n"
+        "严格规则：\n"
+        "1. 只输出检索语句和关键词，不要回答问题，不要给法律结论。\n"
+        "2. 不要编造具体法条编号。\n"
+        "3. 保留用户争议焦点，补充主体、法律关系、同义词和常见检索词。\n"
+        "4. 输出不超过120个中文字符。\n\n"
+        f"用户原问题：{original[:120]}\n"
+        f"规则扩展参考：{rule_expanded_query[:180]}\n"
+        "检索语句："
+    )
+
+    content = _chat_completion_text(
+        [{"role": "user", "content": prompt}],
+        model=_resolve_llm_model(model_variant),
+        max_tokens=160,
+        temperature=0.0,
+    )
+    cleaned = _sanitize_retrieval_query(content)
+    if not cleaned:
+        return None
+    return expand_legal_query(f"{original} {cleaned}")[:_RETRIEVAL_QUERY_MAX_LEN]
+
+
+def _should_use_llm_retrieval_expansion(query: str) -> bool:
+    text = (query or "").strip()
+    if not text or not _is_legal_domain_question(text) or _is_out_of_scope_request(text):
+        return False
+    if _is_insufficient_fact_query(text):
+        return False
+    # 短句、无明确问号的口语句、或只含高频争议词时，最需要补全检索意图。
+    return len(text) <= 32 or not text.endswith(("?", "？")) or bool(_extract_legal_topic_tags(text))
+
+
+def _sanitize_retrieval_query(content: str | None) -> str:
+    if not content:
+        return ""
+    text = _strip_citation_sentinel(str(content)).strip()
+    text = re.sub(r"```(?:\w+)?|```", " ", text)
+    text = re.sub(r"^(检索语句|查询语句|关键词)\s*[:：]\s*", "", text.strip())
+    text = re.sub(r"\s+", " ", text).strip(" 。；;，,")
+    forbidden = (
+        "可以",
+        "应当",
+        "建议",
+        "属于",
+        "违法",
+        "起诉维权",
+        "法律意见",
+        "结论",
+    )
+    if any(marker in text for marker in forbidden):
+        # Keep keywords before answer-like phrasing if the model disobeys.
+        parts = re.split(r"[。；;]", text, maxsplit=1)
+        text = parts[0].strip()
+    return text[:120]
 
 
 def _ask_ark(req: ChatRequest, evidence: list[dict[str, Any]], history: list[dict[str, str]] | None = None) -> AnswerJson | None:
@@ -626,6 +789,44 @@ def _is_legal_domain_question(text: str) -> bool:
     return _contains_legal_signal(normalized) or bool(_extract_legal_topic_tags(normalized))
 
 
+def _is_insufficient_fact_query(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized or _is_out_of_scope_request(normalized):
+        return False
+    if not _is_legal_domain_question(normalized):
+        return False
+    has_generic = any(hint in normalized for hint in _INSUFFICIENT_QUERY_HINTS)
+    has_detail = any(hint in normalized for hint in _INSUFFICIENT_DETAIL_HINTS)
+    topic_tags = _extract_legal_topic_tags(normalized)
+    if any(pattern in normalized for pattern in ("别人有纠纷", "公司有问题", "工资相关有争议")):
+        return True
+    concrete_issue_terms = (
+        "押金",
+        "不退",
+        "拖欠工资",
+        "扣钱",
+        "加班费",
+        "退款",
+        "退费",
+        "假货",
+        "被骗",
+        "拉黑",
+        "停水",
+        "停电",
+        "受伤",
+    )
+    if topic_tags and any(term in normalized for term in concrete_issue_terms):
+        return False
+    if has_detail and topic_tags:
+        return False
+    # 典型“泛问句”：
+    # 1) 命中泛化提问词但缺乏事实细节；或
+    # 2) 极短且不包含关键信息字段。
+    if has_generic and not has_detail:
+        return True
+    return len(normalized) <= 14 and not has_detail
+
+
 def _effective_citation_strict(req: ChatRequest | None, default: bool) -> bool:
     if req is not None and req.citation_strict is not None:
         return req.citation_strict
@@ -827,6 +1028,13 @@ def _finalize_answer(
             citations=[],
             emotion="serious",
         )
+
+    # 非 strict 模式下也做守卫：信息不足或泛化结论但缺乏可靠引用时，强制回到追问模板。
+    if req is not None and _is_legal_domain_question(req.text):
+        conclusion_text = _strip_citation_sentinel(answer.conclusion or "").strip().lower()
+        generic_conclusion = any(marker in conclusion_text for marker in _GENERIC_CONCLUSION_MARKERS)
+        if _is_insufficient_fact_query(req.text) and (not citations or generic_conclusion):
+            return _legal_domain_no_citation_answer(req, answer)
 
     return AnswerJson(
         conclusion=_strip_citation_sentinel(answer.conclusion).strip() if answer.conclusion else "当前暂无法输出稳定结论，请补充事实后继续。",

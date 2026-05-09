@@ -15,6 +15,16 @@ _EMBED_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
 _EMBED_CACHE_LOCK = Lock()
 
 
+def _get_opener():
+    # Prefer explicit proxy from settings; otherwise follow system proxy; optionally force direct.
+    if settings.force_no_proxy:
+        return _NO_PROXY_OPENER
+    proxy = (settings.outbound_proxy or "").strip()
+    if proxy:
+        return request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}))
+    return request.build_opener()
+
+
 def embed_text(text: str, provider_override: str | None = None) -> list[float]:
     runtime = get_runtime_config()
     provider = (provider_override or runtime.embedding_provider or settings.embedding_provider).lower().strip()
@@ -82,7 +92,7 @@ def _ark_embed(text: str) -> list[float]:
     for attempt in range(3):
         req_obj = request.Request(url=url, data=data, headers=headers, method="POST")
         try:
-            with _NO_PROXY_OPENER.open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
+            with _get_opener().open(req_obj, timeout=get_runtime_config().timeout_sec) as resp:
                 body = resp.read().decode("utf-8")
             break
         except error.HTTPError as exc:

@@ -48,10 +48,9 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         history = session_store.get_chat_history(req.session_id)
         stage_ms["history"] = (time.perf_counter() - stage_started) * 1000
         
-        # 2. Query Rewrite
+        # 2. Query Rewrite / Retrieval Query Expansion
         stage_started = time.perf_counter()
-        rewritten_text = chat_service.rewrite_query(history, req.text) if history else req.text
-        search_text = chat_service.expand_legal_query(rewritten_text)
+        search_text = chat_service.build_retrieval_query(history, req.text, req.model_variant)
         stage_ms["rewrite"] = (time.perf_counter() - stage_started) * 1000
         
         # 3. 检索时使用重写/扩展后的 search_text
@@ -184,8 +183,7 @@ def chat_stream(req: ChatRequest, request: Request) -> StreamingResponse:
             yield emit({"type": "status", "phase": "history"})
 
             stage_started = time.perf_counter()
-            rewritten_text = chat_service.rewrite_query(history, req.text) if history else req.text
-            search_text = chat_service.expand_legal_query(rewritten_text)
+            search_text = chat_service.build_retrieval_query(history, req.text, req.model_variant)
             stage_ms["rewrite"] = (time.perf_counter() - stage_started) * 1000
             yield emit({"type": "status", "phase": "search"})
 

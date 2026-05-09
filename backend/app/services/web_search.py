@@ -4,9 +4,20 @@ import re
 from dataclasses import dataclass
 from urllib import parse, request
 
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-_OPENER = request.build_opener(request.ProxyHandler({}))
+_NO_PROXY_OPENER = request.build_opener(request.ProxyHandler({}))
+
+
+def _get_opener():
+    # Prefer explicit proxy from settings; otherwise follow system proxy; optionally force direct.
+    if settings.force_no_proxy:
+        return _NO_PROXY_OPENER
+    proxy = (settings.outbound_proxy or "").strip()
+    if proxy:
+        return request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}))
+    return request.build_opener()
 
 
 @dataclass
@@ -34,7 +45,7 @@ def search_public_web(query: str, limit: int = 5, timeout_sec: int = 20) -> list
     )
 
     try:
-        with _OPENER.open(req, timeout=timeout_sec) as resp:
+        with _get_opener().open(req, timeout=timeout_sec) as resp:
             body = resp.read().decode("utf-8", errors="ignore")
     except Exception as exc:
         logger.warning("public web search failed: %s", exc)

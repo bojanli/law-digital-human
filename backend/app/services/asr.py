@@ -31,6 +31,16 @@ _LAST_SERVER_SUMMARY: str | None = None
 _LAST_AUDIO_PROBE: str | None = None
 
 
+def _get_opener():
+    # Prefer explicit proxy from settings; otherwise follow system proxy; optionally force direct.
+    if settings.force_no_proxy:
+        return _NO_PROXY_OPENER
+    proxy = (settings.outbound_proxy or "").strip()
+    if proxy:
+        return request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}))
+    return request.build_opener()
+
+
 def transcribe(audio_bytes: bytes, content_type: str | None = None) -> str:
     global _LAST_DETAIL, _LAST_LOG_ID, _LAST_SERVER_SUMMARY, _LAST_AUDIO_PROBE
     _LAST_DETAIL = None
@@ -95,7 +105,7 @@ def _ark_transcribe(audio_bytes: bytes, content_type: str | None = None) -> str:
         method="POST",
     )
     try:
-        with _NO_PROXY_OPENER.open(req_obj, timeout=20) as resp:
+        with _get_opener().open(req_obj, timeout=20) as resp:
             parsed = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except (error.HTTPError, error.URLError, TimeoutError, OSError, json.JSONDecodeError):
         return ""
@@ -555,7 +565,7 @@ def _doubao_open_transcribe(audio_bytes: bytes, content_type: str | None = None)
         method="POST",
     )
     try:
-        with _NO_PROXY_OPENER.open(req_obj, timeout=20) as resp:
+        with _get_opener().open(req_obj, timeout=20) as resp:
             parsed = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except (error.HTTPError, error.URLError, TimeoutError, OSError, json.JSONDecodeError):
         return ""
@@ -613,7 +623,7 @@ def _doubao_auc_transcribe(audio_bytes: bytes, content_type: str | None = None) 
         method="POST",
     )
     try:
-        with _NO_PROXY_OPENER.open(submit_req, timeout=20) as resp:
+        with _get_opener().open(submit_req, timeout=20) as resp:
             _LAST_LOG_ID = resp.headers.get("X-Tt-Logid", "")
             status_code = resp.headers.get("X-Api-Status-Code", "")
             status_msg = resp.headers.get("X-Api-Message", "")
@@ -645,7 +655,7 @@ def _doubao_auc_transcribe(audio_bytes: bytes, content_type: str | None = None) 
     deadline = time.time() + max(5, int(settings.asr_auc_timeout_sec))
     while time.time() < deadline:
         try:
-            with _NO_PROXY_OPENER.open(query_req, timeout=20) as resp:
+            with _get_opener().open(query_req, timeout=20) as resp:
                 _LAST_LOG_ID = resp.headers.get("X-Tt-Logid", "") or _LAST_LOG_ID
                 status_code = (resp.headers.get("X-Api-Status-Code") or "").strip()
                 status_msg = (resp.headers.get("X-Api-Message") or "").strip()
@@ -717,7 +727,7 @@ def _doubao_flash_transcribe(audio_bytes: bytes, content_type: str | None, task_
         method="POST",
     )
     try:
-        with _NO_PROXY_OPENER.open(req, timeout=30) as resp:
+        with _get_opener().open(req, timeout=30) as resp:
             status_code = (resp.headers.get("X-Api-Status-Code") or "").strip()
             status_msg = (resp.headers.get("X-Api-Message") or "").strip()
             body = resp.read().decode("utf-8", errors="ignore")
@@ -735,3 +745,4 @@ def _doubao_flash_transcribe(audio_bytes: bytes, content_type: str | None, task_
         return "", f"flash HTTPError={exc.code} body={body[:200]}"
     except Exception as exc:
         return "", f"flash异常={type(exc).__name__}"
+

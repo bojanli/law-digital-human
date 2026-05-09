@@ -96,6 +96,15 @@ python scripts/run_final_thesis_eval.py
 ```
 评测报告将生成在 `backend/tests/reports/final_thesis_eval_report.md`。
 
+检索质量使用 80 题正式测试集：
+
+```bash
+cd backend
+python scripts/run_retrieval_quality_eval.py
+```
+
+检索质量报告将生成在 `backend/tests/reports/retrieval_quality_80_report.md`。
+
 ## 声明
 
 本项目为毕业设计作品，法律知识库仅供参考，不构成专业法律建议。

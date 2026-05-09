@@ -39,6 +39,52 @@ class ChatGuardTests(unittest.TestCase):
         self.assertIn("承租人", expanded)
         self.assertIn("民法典", expanded)
 
+    def test_long_factful_rent_question_is_not_treated_as_insufficient(self) -> None:
+        text = "租房到期后房东迟迟不退押金，我有合同和交接记录，该怎么维权？"
+        self.assertFalse(chat_service._is_insufficient_fact_query(text))
+        expanded = chat_service.expand_legal_query(text)
+        self.assertIn("租赁合同", expanded)
+        self.assertIn("出租人", expanded)
+        self.assertIn("承租人", expanded)
+
+    def test_short_query_uses_llm_only_for_retrieval_expansion(self) -> None:
+        with (
+            patch("app.services.chat.settings.llm_provider", "ark"),
+            patch("app.services.chat.settings.ark_api_key", "k"),
+            patch("app.services.chat.settings.ark_model", "m"),
+            patch(
+                "app.services.chat._chat_completion_text",
+                return_value="房屋租赁合同 出租人 承租人 押金返还 保证金 拒绝返还 合同履行",
+            ) as completion,
+        ):
+            query = chat_service.build_retrieval_query([], "房东不退押金", "fast")
+
+        completion.assert_called_once()
+        self.assertIn("房东不退押金", query)
+        self.assertIn("房屋租赁", query)
+        self.assertIn("押金返还", query)
+        self.assertIn("承租人", query)
+        self.assertNotIn("可以起诉", query)
+
+    def test_retrieval_expansion_skips_ood_and_insufficient_queries(self) -> None:
+        with (
+            patch("app.services.chat.settings.llm_provider", "ark"),
+            patch("app.services.chat.settings.ark_api_key", "k"),
+            patch("app.services.chat.settings.ark_model", "m"),
+            patch("app.services.chat._chat_completion_text") as completion,
+        ):
+            stock_query = chat_service.build_retrieval_query([], "帮我预测明天股票涨跌", "fast")
+            vague_query = chat_service.build_retrieval_query([], "我和别人有纠纷，怎么办？", "fast")
+
+        completion.assert_not_called()
+        self.assertEqual(stock_query, "帮我预测明天股票涨跌")
+        self.assertEqual(vague_query, "我和别人有纠纷，怎么办？")
+
+    def test_generic_insufficient_eval_questions_still_trigger_followup(self) -> None:
+        self.assertTrue(chat_service._is_insufficient_fact_query("我和别人有纠纷，怎么办？"))
+        self.assertTrue(chat_service._is_insufficient_fact_query("公司有问题，我想维权。"))
+        self.assertTrue(chat_service._is_insufficient_fact_query("工资相关有争议，怎么处理？"))
+
     def test_stream_text_can_recover_citations(self) -> None:
         answer = chat_service.build_answer_from_stream_text(
             "房东无正当理由不退押金属于违约。\n建议：保留转账和聊天记录。\n[[CITATIONS:c1,c2]]",

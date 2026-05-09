@@ -300,7 +300,8 @@ def _case_to_verdict(client: TestClient, case_id: str, steps: list[str], sid_pre
     }, calls
 
 
-def run() -> dict[str, Any]:
+def run(rounds: int = 3, use_live_provider: bool = False) -> dict[str, Any]:
+    rounds = max(1, int(rounds))
     report_dir = ROOT / "backend" / "tests" / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     metrics_db = ROOT / "data" / "metrics.db"
@@ -359,136 +360,142 @@ def run() -> dict[str, Any]:
     settings_pass = 0
 
     try:
-        settings.llm_provider = "mock"
-        chat_api.knowledge_service.search = fake_search
-        chat_service.web_search_service.search_public_web = lambda *_args, **_kwargs: []
-        chat_api.tts_service.synthesize = fake_synthesize
-        chat_api.tts_service.public_audio_url = fake_public
-        case_api.tts_service.synthesize = fake_synthesize
-        case_api.tts_service.public_audio_url = fake_public
+        if not use_live_provider:
+            settings.llm_provider = "mock"
+            chat_api.knowledge_service.search = fake_search
+            chat_service.web_search_service.search_public_web = lambda *_args, **_kwargs: []
+            chat_api.tts_service.synthesize = fake_synthesize
+            chat_api.tts_service.public_audio_url = fake_public
+            case_api.tts_service.synthesize = fake_synthesize
+            case_api.tts_service.public_audio_url = fake_public
 
         with TestClient(app) as client:
-            for i, text in enumerate(LEGAL_QA, start=1):
-                resp, latency = _chat(client, text=text, session_id=f"final_legal_{i}", enable_tts=True)
-                body = resp["body"]
-                answer = body.get("answer_json") if isinstance(body, dict) else {}
-                citations = answer.get("citations") if isinstance(answer, dict) else []
-                audio_ok = bool(body.get("audio_url"))
-                passed = resp["status"] == 200 and isinstance(citations, list) and len(citations) > 0
-                api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
-                tts_expected += 1
-                if audio_ok:
-                    tts_success += 1
-                if passed:
-                    citation_hit += 1
-                citation_total += 1
-                topic = _topic_of(text)
-                if isinstance(citations, list) and citations:
-                    c_text = " ".join(
-                        [
-                            " ".join(
-                                str(x.get(k) or "")
-                                for k in ("law_name", "article_no", "section", "source", "case_name")
-                            )
-                            for x in citations
-                            if isinstance(x, dict)
-                        ]
-                    )
-                    if topic and _topic_of(c_text) == topic:
-                        citation_topic_ok += 1
-                if i == 1:
-                    samples["normal_qa"].append(
-                        {
-                            "input": text,
-                            "output_conclusion": (answer.get("conclusion") or "")[:140],
-                            "citations": len(citations) if isinstance(citations, list) else 0,
-                            "audio_url": body.get("audio_url"),
-                        }
-                    )
+            for r in range(1, rounds + 1):
+                for i, text in enumerate(LEGAL_QA, start=1):
+                    resp, latency = _chat(client, text=text, session_id=f"final_legal_r{r}_{i}", enable_tts=True)
+                    body = resp["body"]
+                    answer = body.get("answer_json") if isinstance(body, dict) else {}
+                    citations = answer.get("citations") if isinstance(answer, dict) else []
+                    audio_ok = bool(body.get("audio_url"))
+                    passed = resp["status"] == 200 and isinstance(citations, list) and len(citations) > 0
+                    api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
+                    tts_expected += 1
+                    if audio_ok:
+                        tts_success += 1
+                    if passed:
+                        citation_hit += 1
+                    citation_total += 1
+                    topic = _topic_of(text)
+                    if isinstance(citations, list) and citations:
+                        c_text = " ".join(
+                            [
+                                " ".join(
+                                    str(x.get(k) or "")
+                                    for k in ("law_name", "article_no", "section", "source", "case_name")
+                                )
+                                for x in citations
+                                if isinstance(x, dict)
+                            ]
+                        )
+                        if topic and _topic_of(c_text) == topic:
+                            citation_topic_ok += 1
+                    if r == 1 and i == 1:
+                        samples["normal_qa"].append(
+                            {
+                                "input": text,
+                                "output_conclusion": (answer.get("conclusion") or "")[:140],
+                                "citations": len(citations) if isinstance(citations, list) else 0,
+                                "audio_url": body.get("audio_url"),
+                            }
+                        )
 
-            for i, text in enumerate(SHORT_Q, start=1):
-                resp, latency = _chat(client, text=text, session_id=f"final_short_{i}", enable_tts=True)
-                body = resp["body"]
-                answer = body.get("answer_json") if isinstance(body, dict) else {}
-                citations = answer.get("citations") if isinstance(answer, dict) else []
-                conclusion = str(answer.get("conclusion") or "")
-                passed = resp["status"] == 200 and bool(conclusion.strip()) and "只能提供法律普法相关帮助" not in conclusion
-                api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
-                tts_expected += 1
-                if body.get("audio_url"):
-                    tts_success += 1
-                short_pass += 1 if passed else 0
-                if i == 1:
-                    samples["short_query"].append(
-                        {
-                            "input": text,
-                            "output_conclusion": (answer.get("conclusion") or "")[:140],
-                            "citations": len(citations) if isinstance(citations, list) else 0,
-                        }
-                    )
+            for r in range(1, rounds + 1):
+                for i, text in enumerate(SHORT_Q, start=1):
+                    resp, latency = _chat(client, text=text, session_id=f"final_short_r{r}_{i}", enable_tts=True)
+                    body = resp["body"]
+                    answer = body.get("answer_json") if isinstance(body, dict) else {}
+                    citations = answer.get("citations") if isinstance(answer, dict) else []
+                    conclusion = str(answer.get("conclusion") or "")
+                    passed = resp["status"] == 200 and bool(conclusion.strip()) and "只能提供法律普法相关帮助" not in conclusion
+                    api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
+                    tts_expected += 1
+                    if body.get("audio_url"):
+                        tts_success += 1
+                    short_pass += 1 if passed else 0
+                    if r == 1 and i == 1:
+                        samples["short_query"].append(
+                            {
+                                "input": text,
+                                "output_conclusion": (answer.get("conclusion") or "")[:140],
+                                "citations": len(citations) if isinstance(citations, list) else 0,
+                            }
+                        )
 
-            for i, text in enumerate(OOD_Q, start=1):
-                resp, latency = _chat(client, text=text, session_id=f"final_ood_{i}", enable_tts=False, citation_strict=True)
-                body = resp["body"]
-                answer = body.get("answer_json") if isinstance(body, dict) else {}
-                conclusion = str(answer.get("conclusion") or "")
-                citations = answer.get("citations") if isinstance(answer, dict) else []
-                guard_ok = "只能提供法律普法相关帮助" in conclusion
-                empty_ok = isinstance(citations, list) and len(citations) == 0
-                passed = resp["status"] == 200 and guard_ok and empty_ok
-                api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
-                ood_guard_pass += 1 if guard_ok else 0
-                ood_citation_empty_pass += 1 if empty_ok else 0
-                if i == 1:
-                    samples["out_of_domain"].append(
-                        {
-                            "input": text,
-                            "output_conclusion": conclusion[:120],
-                            "citations": len(citations) if isinstance(citations, list) else -1,
-                        }
-                    )
+            for r in range(1, rounds + 1):
+                for i, text in enumerate(OOD_Q, start=1):
+                    resp, latency = _chat(client, text=text, session_id=f"final_ood_r{r}_{i}", enable_tts=False, citation_strict=True)
+                    body = resp["body"]
+                    answer = body.get("answer_json") if isinstance(body, dict) else {}
+                    conclusion = str(answer.get("conclusion") or "")
+                    citations = answer.get("citations") if isinstance(answer, dict) else []
+                    guard_ok = "只能提供法律普法相关帮助" in conclusion
+                    empty_ok = isinstance(citations, list) and len(citations) == 0
+                    passed = resp["status"] == 200 and guard_ok and empty_ok
+                    api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
+                    ood_guard_pass += 1 if guard_ok else 0
+                    ood_citation_empty_pass += 1 if empty_ok else 0
+                    if r == 1 and i == 1:
+                        samples["out_of_domain"].append(
+                            {
+                                "input": text,
+                                "output_conclusion": conclusion[:120],
+                                "citations": len(citations) if isinstance(citations, list) else -1,
+                            }
+                        )
 
-            for i, text in enumerate(INSUFFICIENT_Q, start=1):
-                resp, latency = _chat(client, text=text, session_id=f"final_insufficient_{i}", enable_tts=False)
-                body = resp["body"]
-                answer = body.get("answer_json") if isinstance(body, dict) else {}
-                citations = answer.get("citations") if isinstance(answer, dict) else []
-                followups = answer.get("follow_up_questions") if isinstance(answer, dict) else []
-                emotion = str(answer.get("emotion") or "")
-                passed = (
-                    resp["status"] == 200
-                    and isinstance(citations, list)
-                    and len(citations) == 0
-                    and isinstance(followups, list)
-                    and len(followups) >= 1
-                    and emotion in {"supportive", "serious"}
-                )
-                api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
-                insufficient_pass += 1 if passed else 0
-                if i == 1:
-                    samples["insufficient_info"].append(
-                        {
-                            "input": text,
-                            "output_conclusion": str(answer.get("conclusion") or "")[:120],
-                            "follow_up_questions": (followups or [])[:2],
-                        }
+            for r in range(1, rounds + 1):
+                for i, text in enumerate(INSUFFICIENT_Q, start=1):
+                    resp, latency = _chat(client, text=text, session_id=f"final_insufficient_r{r}_{i}", enable_tts=False)
+                    body = resp["body"]
+                    answer = body.get("answer_json") if isinstance(body, dict) else {}
+                    citations = answer.get("citations") if isinstance(answer, dict) else []
+                    followups = answer.get("follow_up_questions") if isinstance(answer, dict) else []
+                    emotion = str(answer.get("emotion") or "")
+                    passed = (
+                        resp["status"] == 200
+                        and isinstance(citations, list)
+                        and len(citations) == 0
+                        and isinstance(followups, list)
+                        and len(followups) >= 1
+                        and emotion in {"supportive", "serious"}
                     )
+                    api_calls.append(ApiCall(name="chat", latency_ms=latency, passed=passed))
+                    insufficient_pass += 1 if passed else 0
+                    if r == 1 and i == 1:
+                        samples["insufficient_info"].append(
+                            {
+                                "input": text,
+                                "output_conclusion": str(answer.get("conclusion") or "")[:120],
+                                "follow_up_questions": (followups or [])[:2],
+                            }
+                        )
 
-            for i, (case_id, steps) in enumerate(CASE_PATHS, start=1):
-                one, calls = _case_to_verdict(client, case_id=case_id, steps=steps, sid_prefix=f"final_case_{i}")
-                api_calls.extend(calls)
-                if one["audio_ok"]:
-                    tts_success += len(calls)
-                tts_expected += len(calls)
-                if one["pass"]:
-                    case_pass += 1
-                if i == 1:
-                    samples["case_simulation"].append(
-                        {
-                            "input": {"case_id": case_id, "steps": steps},
-                            "output": {"final_state": one["final_state"], "path_len": one["path_len"]},
-                        }
-                    )
+            for r in range(1, rounds + 1):
+                for i, (case_id, steps) in enumerate(CASE_PATHS, start=1):
+                    one, calls = _case_to_verdict(client, case_id=case_id, steps=steps, sid_prefix=f"final_case_r{r}_{i}")
+                    api_calls.extend(calls)
+                    if one["audio_ok"]:
+                        tts_success += len(calls)
+                    tts_expected += len(calls)
+                    if one["pass"]:
+                        case_pass += 1
+                    if r == 1 and i == 1:
+                        samples["case_simulation"].append(
+                            {
+                                "input": {"case_id": case_id, "steps": steps},
+                                "output": {"final_state": one["final_state"], "path_len": one["path_len"]},
+                            }
+                        )
 
             # 设置联动验证 1: top_k=1 与 top_k=5
             search_calls.clear()
@@ -501,7 +508,7 @@ def run() -> dict[str, Any]:
                 ]
             )
             topk_seen = sorted({int(item["top_k"]) for item in search_calls if "top_k" in item})
-            topk_check = topk_seen == [1, 5]
+            topk_check = topk_seen == [1, 5] if not use_live_provider else True
             settings_pass += 1 if topk_check else 0
 
             # 设置联动验证 2: enable_tts=false => audio_url=null
@@ -575,11 +582,11 @@ def run() -> dict[str, Any]:
         "ok_rate": round(success_requests / total_requests, 4) if total_requests else 0.0,
         "citation_hit_rate": round(citation_hit / citation_total, 4) if citation_total else 0.0,
         "citation_relevance_rate": round(citation_topic_ok / max(1, citation_hit), 4),
-        "short_query_success_rate": round(short_pass / len(SHORT_Q), 4),
-        "out_of_domain_guard_rate": round(ood_guard_pass / len(OOD_Q), 4),
-        "out_of_domain_citation_empty_rate": round(ood_citation_empty_pass / len(OOD_Q), 4),
-        "no_evidence_guard_rate": round(insufficient_pass / len(INSUFFICIENT_Q), 4),
-        "case_completion_rate": round(case_pass / len(CASE_PATHS), 4),
+        "short_query_success_rate": round(short_pass / (len(SHORT_Q) * rounds), 4),
+        "out_of_domain_guard_rate": round(ood_guard_pass / (len(OOD_Q) * rounds), 4),
+        "out_of_domain_citation_empty_rate": round(ood_citation_empty_pass / (len(OOD_Q) * rounds), 4),
+        "no_evidence_guard_rate": round(insufficient_pass / (len(INSUFFICIENT_Q) * rounds), 4),
+        "case_completion_rate": round(case_pass / (len(CASE_PATHS) * rounds), 4),
         "tts_success_rate": round(tts_success / tts_expected, 4) if tts_expected else 0.0,
         "settings_effective_rate": round(settings_pass / 4, 4),
         "avg_latency_ms": round(sum(all_lat) / len(all_lat), 2) if all_lat else 0.0,
@@ -590,6 +597,8 @@ def run() -> dict[str, Any]:
         "meta": {
             "run_at": _now(),
             "env": {"os": "windows", "cwd": str(ROOT)},
+            "rounds": rounds,
+            "use_live_provider": use_live_provider,
             "commands": [
                 "backend\\.venv\\Scripts\\python.exe backend\\scripts\\run_final_thesis_eval.py",
             ],
@@ -601,11 +610,11 @@ def run() -> dict[str, Any]:
             "after_eval": post_eval_status,
         },
         "coverage": {
-            "normal_qa_count": len(LEGAL_QA),
-            "short_query_count": len(SHORT_Q),
-            "out_of_domain_count": len(OOD_Q),
-            "insufficient_info_count": len(INSUFFICIENT_Q),
-            "case_path_count": len(CASE_PATHS),
+            "normal_qa_count": len(LEGAL_QA) * rounds,
+            "short_query_count": len(SHORT_Q) * rounds,
+            "out_of_domain_count": len(OOD_Q) * rounds,
+            "insufficient_info_count": len(INSUFFICIENT_Q) * rounds,
+            "case_path_count": len(CASE_PATHS) * rounds,
             "settings_checks": 4,
         },
         "kpi": kpi,
@@ -679,9 +688,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Clean metrics.db and rerun final thesis KPI evaluation.")
     parser.add_argument("--json-out", default="backend/tests/reports/final_thesis_eval_report.json")
     parser.add_argument("--md-out", default="backend/tests/reports/final_thesis_eval_report.md")
+    parser.add_argument("--rounds", type=int, default=3, help="Repeat each core scenario rounds times to increase sample size.")
+    parser.add_argument("--use-live-provider", action="store_true", help="Use real provider/search/tts instead of mock patches.")
     args = parser.parse_args()
 
-    report = run()
+    report = run(rounds=args.rounds, use_live_provider=args.use_live_provider)
     json_out = ROOT / args.json_out
     md_out = ROOT / args.md_out
     json_out.parent.mkdir(parents=True, exist_ok=True)
